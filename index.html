@@ -26,5 +26,122 @@
 <div class="modal-bg" id="modal-bg" hidden></div>
 <section class="modal" id="settings" hidden role="dialog" aria-modal="true"><div class="modal-head"><div><small>CONTROL CENTER</small><h2>Settings</h2></div><button class="icon close-modal">×</button></div><label class="setting"><span><b>Theme</b><small>Choose the interface theme.</small></span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label class="setting"><span><b>Model identifier</b><small>Uses the Puter model name you configure.</small></span><input id="model" value="openai/gpt-6-astra"></label><label class="setting"><span><b>Response style</b><small>Control typical answer length.</small></span><select id="verbosity"><option value="low">Concise</option><option value="medium">Balanced</option><option value="high">Detailed</option></select></label><label class="setting"><span><b>Reasoning effort</b><small>Passed when supported by the selected model.</small></span><select id="reasoning"><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label><p class="note">Puter.js provides the browser-side AI connection. No separate OpenAI API key is embedded in this site.</p><div class="modal-actions"><button class="secondary close-modal">Cancel</button><button class="primary" id="save-settings">Save settings</button></div></section>
 <section class="modal compact" id="model-modal" hidden role="dialog" aria-modal="true"><div class="modal-head"><div><small>MODEL</small><h2>Choose model</h2></div><button class="icon close-modal">×</button></div><button class="model-option" id="requested-model"><i></i><span><b>GPT-6 Astra</b><small>openai/gpt-6-astra</small></span><span>✓</span></button><p class="model-help">Change the model identifier later in Settings to another model exposed by Puter.</p></section>
-<div class="toasts" id="toasts"></div><script src="https://js.puter.com/v2/"></script><script src="script.js"></script>
+<div class="toasts" id="toasts"></div><script src="https://js.puter.com/v2/"></script><script src="script.js?v=20260917"></script>
+<script>
+(() => {
+  const send = document.querySelector('#send');
+  const input = document.querySelector('#input');
+  const messages = document.querySelector('#messages');
+  const welcome = document.querySelector('#welcome');
+  const scroll = document.querySelector('#scroll');
+  const STORAGE_KEY = 'gpt6-astra-state-v1';
+  const DEFAULT_MODEL = 'openai/gpt-6-astra';
+  if (!send || !input || !messages) return;
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));
+  }
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
+    catch { return null; }
+  }
+  function save(data) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} }
+  function chatState() {
+    const data = load() || { chats: [], activeId: null, settings: {} };
+    data.chats = Array.isArray(data.chats) ? data.chats : [];
+    data.settings = data.settings || {};
+    let chat = data.chats.find(c => c.id === data.activeId);
+    if (!chat) {
+      chat = { id: String(Date.now()), title: 'New conversation', createdAt: Date.now(), updatedAt: Date.now(), messages: [] };
+      data.chats.unshift(chat);
+      data.activeId = chat.id;
+    }
+    chat.messages = Array.isArray(chat.messages) ? chat.messages : [];
+    return { data, chat };
+  }
+  function render() {
+    const { chat } = chatState();
+    messages.innerHTML = '';
+    if (welcome) welcome.hidden = chat.messages.length > 0;
+    for (const m of chat.messages) {
+      const article = document.createElement('article');
+      article.className = `message ${m.role}`;
+      const body = typeof m.content === 'string' ? m.content : '';
+      article.innerHTML = `<div class="avatar">${m.role === 'user' ? 'YOU' : '✦'}</div><div class="message-body"><div class="message-head"><span>${m.role === 'user' ? 'You' : 'GPT-6 Astra'}</span></div><div class="message-text">${esc(body).replace(/\n/g,'<br>')}</div><div class="message-actions"></div></div>`;
+      messages.appendChild(article);
+    }
+    requestAnimationFrame(() => { if (scroll) scroll.scrollTop = scroll.scrollHeight; });
+  }
+
+  let busy = false;
+  async function sendMessage() {
+    if (busy) return;
+    const text = input.value.trim();
+    if (!text) return;
+    if (typeof window.puter === 'undefined' || !puter.ai || typeof puter.ai.chat !== 'function') {
+      const host = document.querySelector('#toasts');
+      if (host) { const t = document.createElement('div'); t.className = 'toast error'; t.textContent = 'Puter.js is not available. Refresh the page and try again.'; host.appendChild(t); setTimeout(() => t.remove(), 3500); }
+      return;
+    }
+
+    const state = chatState();
+    const data = state.data;
+    const chat = state.chat;
+    if (!chat.messages.length) chat.title = text.length > 42 ? `${text.slice(0,42).trim()}…` : text;
+    chat.messages.push({ role: 'user', content: text, createdAt: Date.now() });
+    const assistant = { role: 'assistant', content: '', createdAt: Date.now() };
+    chat.messages.push(assistant);
+    chat.updatedAt = Date.now();
+    save(data);
+    input.value = '';
+    render();
+    busy = true;
+    send.disabled = true;
+
+    try {
+      const previous = chat.messages.slice(0, -1).filter(m => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()).slice(-20);
+      const context = previous.slice(0, -1).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.trim()}`).join('\n\n');
+      const prompt = `You are GPT-6 Astra, a helpful, accurate, practical AI assistant.\n\n${context ? context + '\n\n' : ''}User: ${text}`;
+      const settings = data.settings || {};
+      const opts = { model: settings.model || DEFAULT_MODEL, stream: true };
+      if (['low','medium','high'].includes(settings.verbosity)) opts.verbosity = settings.verbosity;
+      if (['minimal','low','medium','high','xhigh','none'].includes(settings.reasoning)) opts.reasoning_effort = settings.reasoning;
+
+      const result = await puter.ai.chat(prompt, opts);
+      if (result && typeof result[Symbol.asyncIterator] === 'function') {
+        for await (const part of result) {
+          if (part?.type === 'text') {
+            assistant.content += part.text || '';
+            save(data);
+            render();
+          } else if (part?.type === 'error') {
+            throw new Error(part.message || 'Puter returned an error');
+          }
+        }
+      } else {
+        assistant.content = result?.message?.content || result?.text || String(result || '');
+      }
+      if (!assistant.content) assistant.content = "I couldn't read the model response.";
+      chat.updatedAt = Date.now();
+      save(data);
+      render();
+    } catch (error) {
+      chat.messages.pop();
+      save(data);
+      render();
+      const host = document.querySelector('#toasts');
+      if (host) { const t = document.createElement('div'); t.className = 'toast error'; t.textContent = `AI request failed: ${error?.message || String(error)}`; host.appendChild(t); setTimeout(() => t.remove(), 4000); }
+    } finally {
+      busy = false;
+      send.disabled = false;
+    }
+  }
+
+  send.onclick = sendMessage;
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); }
+  });
+  render();
+})();
+</script>
 </body></html>
