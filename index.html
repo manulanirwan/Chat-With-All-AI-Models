@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#07080c">
-  <meta name="description" content="Astra multi-model AI workspace">
-  <title>Astra · AI Model Lab</title>
+  <meta name="description" content="Chat With Powerful AI Models">
+  <title>Chat With Powerful AI Models</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260917-9">
-  <link rel="stylesheet" href="final-ui.css?v=20260917-9">
-  <link rel="stylesheet" href="layout-fix.css?v=20260917-9">
+  <link rel="stylesheet" href="styles.css?v=20260917-10">
+  <link rel="stylesheet" href="final-ui.css?v=20260917-10">
+  <link rel="stylesheet" href="layout-fix.css?v=20260917-10">
   <style>
     html,body{margin:0!important;padding:0!important;width:100%!important;max-width:none!important;min-height:100%!important;overflow:hidden!important}
     .app-shell{display:flex!important;flex-direction:row!important;align-items:stretch!important;width:100%!important;max-width:none!important;height:100dvh!important;min-height:100dvh!important}
@@ -21,6 +21,11 @@
     .welcome,.messages{width:min(1080px,calc(100% - 48px))!important;max-width:1080px!important;margin-left:auto!important;margin-right:auto!important}
     .composer-box,.hint{width:min(760px,100%)!important;max-width:760px!important}
     .hero-copy h1,.welcome h1{font-size:clamp(32px,3.4vw,52px)!important}
+    .sidebar-head{height:auto!important;min-height:52px!important;align-items:flex-start!important}
+    .brand{height:auto!important;align-items:flex-start!important}
+    .brand-copy{padding-top:2px}
+    .brand-copy strong{font-size:13px!important;line-height:1.25!important;white-space:normal!important}
+    .brand-copy small{font-size:11px!important}
     @media (max-width:860px){
       .app-shell{display:block!important}
       .sidebar{position:fixed!important;left:0!important;top:0!important;bottom:0!important;transform:translateX(-105%)!important;z-index:40!important}
@@ -35,7 +40,7 @@
     <div class="mobile-backdrop" id="backdrop"></div>
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
-        <button class="brand" id="home" type="button" aria-label="Start a new conversation"><span class="brand-mark">✦</span><span class="brand-copy"><strong>Astra</strong><small>AI Model Lab</small></span></button>
+        <button class="brand" id="home" type="button" aria-label="Start a new conversation"><span class="brand-mark">✦</span><span class="brand-copy"><strong>Chat With Powerful AI Models</strong><small>Multi-model workspace</small></span></button>
         <button class="icon mobile-only" id="close-sidebar" type="button" aria-label="Close sidebar">×</button>
       </div>
       <div class="sidebar-status"><span class="status-dot"></span><span>LIVE MODEL NETWORK</span><b>20</b></div>
@@ -45,7 +50,7 @@
       <div class="side-foot"><button id="open-settings" type="button"><span>⚙</span> Settings</button><button id="export-data" type="button"><span>⇩</span> Export chats</button><button id="clear-data" class="danger" type="button"><span>⌫</span> Clear local data</button></div>
     </aside>
     <main class="main">
-      <header class="topbar"><button class="icon mobile-only" id="open-sidebar" type="button" aria-label="Open sidebar">☰</button><div class="crumb"><span>ASTRA</span><i>/</i><b>MODEL LAB</b><small id="title-meta">20 models · live availability</small></div><div class="top-actions"><button class="model-pill" id="model-picker" type="button" aria-label="Choose AI model"><span class="model-pill-icon">✦</span><span id="model-label">GPT-6 Astra</span><span class="chevron">⌄</span></button><button class="icon" id="top-settings" type="button" aria-label="Open settings">⚙</button></div></header>
+      <header class="topbar"><button class="icon mobile-only" id="open-sidebar" type="button" aria-label="Open sidebar">☰</button><div class="crumb"><span>CHAT WITH</span><i>/</i><b>POWERFUL AI MODELS</b><small id="title-meta">20 models · live availability</small></div><div class="top-actions"><button class="model-pill" id="model-picker" type="button" aria-label="Choose AI model"><span class="model-pill-icon">✦</span><span id="model-label">GPT-6 Astra</span><span class="chevron">⌄</span></button><button class="icon" id="top-settings" type="button" aria-label="Open settings">⚙</button></div></header>
       <section class="scroll" id="scroll">
         <div class="welcome" id="welcome">
           <div class="hero-wrap"><div class="hero-kicker"><span class="pulse"></span> MULTI-MODEL INTELLIGENCE · PUTER</div><div class="hero-main"><div class="hero-copy"><div class="hero-logo">✦</div><h1>One workspace.<br><span>Twenty different minds.</span></h1><p>Pick a model for the task, switch whenever you want, and keep one conversation history across the entire lab.</p><div class="hero-actions"><button class="primary-hero" id="hero-models" type="button">Explore models <span>→</span></button><button class="ghost-hero" id="hero-settings" type="button">Workspace settings</button></div><div class="hero-meta"><span><b>20</b> curated models</span><span><b>LIVE</b> catalog sync</span><span><b>LOCAL</b> conversation history</span></div></div><div class="hero-console"><div class="console-head"><span>ACTIVE SESSION</span><span><i class="status-dot"></i> READY</span></div><div class="console-model"><div class="console-orb">✦</div><div><small>SELECTED MODEL</small><strong id="console-model-name">GPT-6 Astra</strong><span id="console-model-company">OpenAI</span></div></div><div class="console-divider"></div><div class="console-line"><span>Model switching</span><b>INSTANT</b></div><div class="console-line"><span>History</span><b>LOCAL</b></div><div class="console-line"><span>Provider access</span><b>PUTER</b></div></div></div></div>
@@ -58,10 +63,10 @@
   </div>
   <div class="modal-bg" id="modal-bg" hidden></div>
   <section class="modal model-modal" id="model-modal" hidden role="dialog" aria-modal="true" aria-labelledby="model-modal-title"><div class="modal-head"><div><span class="eyebrow">MODEL SWITCHER</span><h2 id="model-modal-title">Select an AI model</h2><p>20 curated models · live Puter availability</p></div><button class="icon close-modal" type="button" aria-label="Close">×</button></div><div class="model-toolbar"><div class="model-search"><span>⌕</span><input id="model-search" type="search" placeholder="Search by model or provider…" aria-label="Search models"></div><div class="model-filters" id="model-filters"><button class="active" data-filter="all" type="button">All</button><button data-filter="available" type="button">Available</button><button data-filter="OpenAI" type="button">OpenAI</button><button data-filter="Anthropic" type="button">Anthropic</button><button data-filter="Google" type="button">Google</button><button data-filter="Other" type="button">Other</button></div></div><div class="model-list" id="model-list"></div><div class="model-footer"><span class="live-dot"></span><span id="catalog-status">Checking live catalog…</span><button id="refresh-models-modal" type="button">Refresh</button></div></section>
-  <section class="modal settings-modal" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="modal-head"><div><span class="eyebrow">CONTROL CENTER</span><h2 id="settings-title">Workspace settings</h2><p>Adjust the way Astra behaves in this browser.</p></div><button class="icon close-modal" type="button" aria-label="Close">×</button></div><div class="settings-grid"><label class="setting"><span><b>Theme</b><small>Choose how Astra looks.</small></span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label class="setting"><span><b>Response style</b><small>Set the typical answer length.</small></span><select id="verbosity"><option value="low">Concise</option><option value="medium">Balanced</option><option value="high">Detailed</option></select></label><label class="setting"><span><b>Reasoning effort</b><small>Sent when supported by the selected model.</small></span><select id="reasoning"><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Max</option></select></label></div><div class="selected-model-card" id="selected-model-card"></div><p class="note"><span>✦</span> AI access is provided by Puter.js. Provider usage and availability are controlled by Puter. No provider API key is embedded in this site.</p><div class="modal-actions"><button class="secondary close-modal" type="button">Close</button><button class="primary" id="save-settings" type="button">Save settings</button></div></section>
+  <section class="modal settings-modal" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="modal-head"><div><span class="eyebrow">CONTROL CENTER</span><h2 id="settings-title">Workspace settings</h2><p>Adjust the way this workspace behaves in this browser.</p></div><button class="icon close-modal" type="button" aria-label="Close">×</button></div><div class="settings-grid"><label class="setting"><span><b>Theme</b><small>Choose how the workspace looks.</small></span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label class="setting"><span><b>Response style</b><small>Set the typical answer length.</small></span><select id="verbosity"><option value="low">Concise</option><option value="medium">Balanced</option><option value="high">Detailed</option></select></label><label class="setting"><span><b>Reasoning effort</b><small>Sent when supported by the selected model.</small></span><select id="reasoning"><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Max</option></select></label></div><div class="selected-model-card" id="selected-model-card"></div><p class="note"><span>✦</span> AI access is provided by Puter.js. Provider usage and availability are controlled by Puter. No provider API key is embedded in this site.</p><div class="modal-actions"><button class="secondary close-modal" type="button">Close</button><button class="primary" id="save-settings" type="button">Save settings</button></div></section>
   <div class="toasts" id="toasts"></div>
   <script src="https://js.puter.com/v2/"></script>
-  <script src="script.js?v=20260917-9"></script>
-  <script src="model-ui-patches.js?v=20260917-9"></script>
+  <script src="script.js?v=20260917-10"></script>
+  <script src="model-ui-patches.js?v=20260917-10"></script>
 </body>
 </html>
