@@ -59,5 +59,20 @@
     const label=document.querySelector("#model-label");
     if(label)new MutationObserver(syncHero).observe(label,{characterData:true,childList:true,subtree:true});
   }
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",bind,{once:true});else bind();
+  function keepWelcomeInView(){
+    const scroll=document.querySelector("#scroll");
+    const messages=document.querySelector("#messages");
+    if(!scroll)return;
+    const hasMessages=Boolean(messages&&messages.children.length);
+    if(!hasMessages)scroll.scrollTop=0;
+  }
+  function start(){
+    bind();
+    keepWelcomeInView();
+    const messages=document.querySelector("#messages");
+    if(messages)new MutationObserver(keepWelcomeInView).observe(messages,{childList:true});
+    window.setTimeout(keepWelcomeInView,80);
+    window.setTimeout(keepWelcomeInView,400);
+  }
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start,{once:true});else start();
 })();
