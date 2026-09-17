@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#07080c">
-  <meta name="description" content="GPT-6 Astra multi-model AI workspace">
-  <title>GPT-6 Astra · AI Model Lab</title>
+  <meta name="description" content="Astra multi-model AI workspace">
+  <title>Astra · AI Model Lab</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260917-8">
-  <link rel="stylesheet" href="final-ui.css?v=20260917-8">
-  <link rel="stylesheet" href="layout-fix.css?v=20260917-8">
+  <link rel="stylesheet" href="styles.css?v=20260917-9">
+  <link rel="stylesheet" href="final-ui.css?v=20260917-9">
+  <link rel="stylesheet" href="layout-fix.css?v=20260917-9">
   <style>
     html,body{margin:0!important;padding:0!important;width:100%!important;max-width:none!important;min-height:100%!important;overflow:hidden!important}
     .app-shell{display:flex!important;flex-direction:row!important;align-items:stretch!important;width:100%!important;max-width:none!important;height:100dvh!important;min-height:100dvh!important}
@@ -35,7 +35,7 @@
     <div class="mobile-backdrop" id="backdrop"></div>
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
-        <button class="brand" id="home" type="button" aria-label="Start a new conversation"><span class="brand-mark">✦</span><span class="brand-copy"><strong>GPT-6 Astra</strong><small>AI Model Lab</small></span></button>
+        <button class="brand" id="home" type="button" aria-label="Start a new conversation"><span class="brand-mark">✦</span><span class="brand-copy"><strong>Astra</strong><small>AI Model Lab</small></span></button>
         <button class="icon mobile-only" id="close-sidebar" type="button" aria-label="Close sidebar">×</button>
       </div>
       <div class="sidebar-status"><span class="status-dot"></span><span>LIVE MODEL NETWORK</span><b>20</b></div>
@@ -53,7 +53,7 @@
           <div class="suggestion-section"><div class="section-head compact"><div><span class="eyebrow">QUICK START</span><h2>What are you working on?</h2></div></div><div class="suggestions"><button data-prompt="Build me a modern landing page for a cybersecurity startup."><span>◈</span><b>Build</b><small>Turn an idea into a polished project.</small></button><button data-prompt="Explain quantum computing in simple terms with a practical example."><span>◎</span><b>Learn</b><small>Make a difficult topic easy to understand.</small></button><button data-prompt="Review this idea and suggest the strongest next steps, risks, and improvements."><span>◇</span><b>Think</b><small>Pressure-test a plan with another model.</small></button><button data-prompt="Write clean JavaScript that fetches API data and handles loading and errors."><span>{ }</span><b>Code</b><small>Generate practical code you can use.</small></button></div></div>
         </div><div class="messages" id="messages"></div>
       </section>
-      <footer class="composer"><div class="composer-box" id="composer-box"><div class="attachment" id="attachment" hidden></div><textarea id="input" rows="1" placeholder="Message GPT-6 Astra…" aria-label="Message AI"></textarea><div class="composer-row"><div class="tools"><label class="tool attach-tool" title="Attach image" aria-label="Attach image">＋<input id="file" type="file" accept="image/*" hidden></label><button class="tool" id="voice" type="button" title="Voice input" aria-label="Voice input">◉</button><span class="composer-note"><span class="shield">⌁</span> Private-by-default local history</span></div><button class="send" id="send" type="button" aria-label="Send message">↑</button></div></div><div class="hint">Enter to send · Shift + Enter for a new line · Switch models anytime</div></footer>
+      <footer class="composer"><div class="composer-box" id="composer-box"><div class="attachment" id="attachment" hidden></div><textarea id="input" rows="1" placeholder="Message the selected model…" aria-label="Message AI"></textarea><div class="composer-row"><div class="tools"><label class="tool attach-tool" title="Attach image" aria-label="Attach image">＋<input id="file" type="file" accept="image/*" hidden></label><button class="tool" id="voice" type="button" title="Voice input" aria-label="Voice input">◉</button><span class="composer-note"><span class="shield">⌁</span> Private-by-default local history</span></div><button class="send" id="send" type="button" aria-label="Send message">↑</button></div></div><div class="hint">Enter to send · Shift + Enter for a new line · Switch models anytime</div></footer>
     </main>
   </div>
   <div class="modal-bg" id="modal-bg" hidden></div>
@@ -61,7 +61,7 @@
   <section class="modal settings-modal" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="modal-head"><div><span class="eyebrow">CONTROL CENTER</span><h2 id="settings-title">Workspace settings</h2><p>Adjust the way Astra behaves in this browser.</p></div><button class="icon close-modal" type="button" aria-label="Close">×</button></div><div class="settings-grid"><label class="setting"><span><b>Theme</b><small>Choose how Astra looks.</small></span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label class="setting"><span><b>Response style</b><small>Set the typical answer length.</small></span><select id="verbosity"><option value="low">Concise</option><option value="medium">Balanced</option><option value="high">Detailed</option></select></label><label class="setting"><span><b>Reasoning effort</b><small>Sent when supported by the selected model.</small></span><select id="reasoning"><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Max</option></select></label></div><div class="selected-model-card" id="selected-model-card"></div><p class="note"><span>✦</span> AI access is provided by Puter.js. Provider usage and availability are controlled by Puter. No provider API key is embedded in this site.</p><div class="modal-actions"><button class="secondary close-modal" type="button">Close</button><button class="primary" id="save-settings" type="button">Save settings</button></div></section>
   <div class="toasts" id="toasts"></div>
   <script src="https://js.puter.com/v2/"></script>
-  <script src="script.js?v=20260917-8"></script>
-  <script src="model-ui-patches.js?v=20260917-8"></script>
+  <script src="script.js?v=20260917-9"></script>
+  <script src="model-ui-patches.js?v=20260917-9"></script>
 </body>
 </html>
