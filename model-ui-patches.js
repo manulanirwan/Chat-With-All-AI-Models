@@ -4,11 +4,10 @@
   ];
   const esc=v=>String(v??"").replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
   const initial=v=>String(v||"AI").replace(/[^A-Za-z]/g,"").slice(0,2).toUpperCase()||"AI";
+  const providerSlug=v=>({"OpenAI":"openai","Anthropic":"anthropic","Google":"google","xAI":"xai","DeepSeek":"deepseek","Alibaba":"alibaba","Moonshot AI":"moonshot","Z.ai":"zai","Meta":"meta","NVIDIA":"nvidia","Mistral AI":"mistral","Cohere":"cohere","Atria":"atria"}[v]||"other");
   let rendering=false;
 
-  function selectedName(){
-    return document.querySelector("#model-label")?.textContent.trim()||"GPT-6 Astra";
-  }
+  function selectedName(){return document.querySelector("#model-label")?.textContent.trim()||"GPT-6 Astra";}
 
   function syncSelected(){
     const selected=selectedName();
@@ -23,7 +22,7 @@
     const target=document.querySelector("#featured-models");
     if(!target||rendering||target.children.length===20)return;
     rendering=true;
-    target.innerHTML=MODELS.map(([name,company],i)=>`<button class="featured-model model-card" type="button" data-model-name="${esc(name)}" aria-pressed="false"><span class="provider-logo provider-${i+1}">${initial(company)}</span><span class="featured-copy"><b>${esc(name)}</b><small>${esc(company)}</small></span><span class="model-index">${String(i+1).padStart(2,"0")}</span></button>`).join("");
+    target.innerHTML=MODELS.map(([name,company],i)=>`<button class="featured-model provider-${providerSlug(company)}" type="button" data-model-name="${esc(name)}" aria-pressed="false"><span class="provider-logo">${initial(company)}</span><span class="featured-copy"><b>${esc(name)}</b><small>${esc(company)}</small></span><span class="model-index">${String(i+1).padStart(2,"0")}</span></button>`).join("");
     target.querySelectorAll("[data-model-name]").forEach(button=>button.addEventListener("click",()=>choose(button.dataset.modelName)));
     syncSelected();
     rendering=false;
