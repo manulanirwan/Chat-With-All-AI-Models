@@ -388,20 +388,13 @@ function providerInitial(company) {
   return String(company || "AI").replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "AI";
 }
 
+function providerClass(company) {
+  return `provider-${String(company || "ai").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
 function renderModelModal() {
   if (!els.modelList) return;
-  let list = MODEL_CHOICES.filter((choice) => {
-    const live = resolveLiveModel(choice);
-    if (modelFilter === "available" && !live) return false;
-    if (!["all", "available"].includes(modelFilter) && modelFilter !== "Other" && choice.company !== modelFilter) return false;
-    if (modelFilter === "Other" && ["OpenAI", "Anthropic", "Google"].includes(choice.company)) return false;
-    if (modelQuery) {
-      const haystack = `${choice.name} ${choice.company} ${choice.candidates.join(" ")}`.toLowerCase();
-      if (!haystack.includes(modelQuery)) return false;
-    }
-    return true;
-  });
-
+  const list = getFilteredModelChoices();
   els.modelList.innerHTML = list.length ? list.map((choice, index) => {
     const live = resolveLiveModel(choice);
     const selected = state.settings.modelName === choice.name || state.settings.model === live?.requestId;
@@ -449,7 +442,6 @@ function selectModelByChoice(choice) {
     toast(`${choice.name} is not currently exposed by Puter.`, "error");
     return;
   }
-
   state.settings.model = live.requestId;
   state.settings.modelName = choice.name;
   saveState();
@@ -512,9 +504,20 @@ async function loadModels(force = false) {
     }
     availableModels = [...unique.values()];
 
-    const selected = getSelectedChoice();
-    const liveSelected = resolveLiveModel(selected);
-    if (liveSelected) {
+    let selected = getSelectedChoice();
+    let liveSelected = resolveLiveModel(selected);
+    if (!liveSelected) {
+      const defaultChoice = MODEL_CHOICES[0];
+      const liveDefault = resolveLiveModel(defaultChoice);
+      if (liveDefault) {
+        state.settings.model = liveDefault.requestId;
+        state.settings.modelName = defaultChoice.name;
+        selected = defaultChoice;
+        liveSelected = liveDefault;
+        saveState();
+      }
+    }
+    if (selected && liveSelected) {
       state.settings.model = liveSelected.requestId;
       state.settings.modelName = selected.name;
       saveState();
