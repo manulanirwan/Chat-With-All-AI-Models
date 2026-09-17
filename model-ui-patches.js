@@ -6,12 +6,26 @@
   const initial=v=>String(v||"AI").replace(/[^A-Za-z]/g,"").slice(0,2).toUpperCase()||"AI";
   let rendering=false;
 
+  function selectedName(){
+    return document.querySelector("#model-label")?.textContent.trim()||"GPT-6 Astra";
+  }
+
+  function syncSelected(){
+    const selected=selectedName();
+    document.querySelectorAll("#featured-models [data-model-name]").forEach(button=>{
+      const active=button.dataset.modelName===selected;
+      button.classList.toggle("selected",active);
+      button.setAttribute("aria-pressed",String(active));
+    });
+  }
+
   function renderDeck(){
     const target=document.querySelector("#featured-models");
     if(!target||rendering||target.children.length===20)return;
     rendering=true;
-    target.innerHTML=MODELS.map(([name,company],i)=>`<button class="featured-model model-card" type="button" data-model-name="${esc(name)}"><span class="provider-logo provider-${i+1}">${initial(company)}</span><span class="featured-copy"><b>${esc(name)}</b><small>${esc(company)}</small></span><span class="model-index">${String(i+1).padStart(2,"0")}</span></button>`).join("");
+    target.innerHTML=MODELS.map(([name,company],i)=>`<button class="featured-model model-card" type="button" data-model-name="${esc(name)}" aria-pressed="false"><span class="provider-logo provider-${i+1}">${initial(company)}</span><span class="featured-copy"><b>${esc(name)}</b><small>${esc(company)}</small></span><span class="model-index">${String(i+1).padStart(2,"0")}</span></button>`).join("");
     target.querySelectorAll("[data-model-name]").forEach(button=>button.addEventListener("click",()=>choose(button.dataset.modelName)));
+    syncSelected();
     rendering=false;
   }
 
@@ -33,6 +47,7 @@
     if(name)name.textContent=selected;
     const item=MODELS.find(m=>m[0]===selected);
     if(company)company.textContent=item?.[1]||"AI";
+    syncSelected();
   }
 
   function bind(){
