@@ -1,1 +1,59 @@
-(()=>{const DISPLAY_CHOICES=[["GPT-6 Astra","OpenAI",["openai/gpt-6-astra"]],["GPT-5.6 Cyber","OpenAI",["openai/gpt-5.6-cyber"]],["Claude Fable 5.1","Anthropic",["anthropic/claude-fable-5-1"]],["Claude Mythos 5.1","Anthropic",["anthropic/claude-mythos-5-1"]],["Claude Opus 5","Anthropic",["anthropic/claude-opus-5"]],["Gemini 3.8 Flash","Google",["google/gemini-3.8-flash"]],["Gemini 3.8 Flash Cyber","Google",["google/gemini-3.8-flash-cyber"]],["Grok 4.6","xAI",["x-ai/grok-4.6"]],["DeepSeek V4.1 Flash","DeepSeek",["deepseek/deepseek-v4.1-flash"]],["DeepSeek V4 Pro","DeepSeek",["deepseek/deepseek-v4-pro"]],["Qwen3.8-Max","Alibaba",["qwen/qwen3.8-max","qwen/qwen3.8-max-0902"]],["Qwen3.8 Flash-Next","Alibaba",["qwen/qwen3.8-flash-next"]],["Kimi K3","Moonshot AI",["moonshotai/kimi-k3"]],["GLM-5.3","Z.ai",["z-ai/glm-5.3"]],["GLM-5.3 Flash","Z.ai",["z-ai/glm-5.3-flash"]],["Muse Spark 1.3","Meta",["meta/muse-spark-1.3"]],["Nemotron 3 Ultra","NVIDIA",["nvidia/nemotron-3-ultra"]],["Mistral Medium 3.5","Mistral AI",["mistralai/mistral-medium-3-5"]],["Command A+","Cohere",["cohere/command-a-plus"]],["Atria Dawn Preview","Atria",["atria/atria-dawn-preview"]]];function providerClass(company){const key=String(company||"ai").toLowerCase().replace(/[^a-z]/g,"");return({openai:"provider-openai",anthropic:"provider-anthropic",google:"provider-google",xai:"provider-xai",deepseek:"provider-deepseek",alibaba:"provider-alibaba",moonshotai:"provider-moonshot",zai:"provider-zai",meta:"provider-meta",nvidia:"provider-nvidia",mistralai:"provider-mistral",cohere:"provider-cohere"})[key]||"provider-other"}window.providerClass=providerClass;window.renderFeaturedModels=function(){const target=document.querySelector("#featured-models");if(!target)return;target.innerHTML=DISPLAY_CHOICES.map(([name,company,candidates])=>{const choice={name,company,candidates};const live=typeof window.resolveLiveModel==="function"?window.resolveLiveModel(choice):null;const current=typeof window.getSelectedChoice==="function"?window.getSelectedChoice():null;const selected=current?.name===name;const initial=typeof window.providerInitial==="function"?window.providerInitial(company):company.slice(0,2).toUpperCase();return `<button class="featured-model ${selected?"selected":""} ${live?"ready":"unavailable"} ${providerClass(company)}" type="button" data-featured-model="${escapeHtml(name)}" ${live?"":"disabled"}><span class="provider-logo">${escapeHtml(initial)}</span><span class="featured-copy"><b>${escapeHtml(name)}</b><small>${escapeHtml(company)}</small></span><span class="model-state"><span class="state-dot"></span><em>${live?"Ready":"Unavailable"}</em></span></button>`}).join("");target.querySelectorAll("[data-featured-model]").forEach(button=>button.addEventListener("click",()=>window.selectModelByName(button.getAttribute("data-featured-model"))))};const originalRenderApp=window.renderApp;window.renderApp=function(){if(typeof originalRenderApp==="function")originalRenderApp();const choice=typeof window.getSelectedChoice==="function"?window.getSelectedChoice():null;const name=choice?.name||document.querySelector("#model-label")?.textContent||"GPT-6 Astra";const company=choice?.company||"AI";const nameEl=document.querySelector("#console-model-name");const companyEl=document.querySelector("#console-model-company");if(nameEl)nameEl.textContent=name;if(companyEl)companyEl.textContent=company};function bindExtraButtons(){document.querySelector("#hero-models")?.addEventListener("click",window.openModelPicker);document.querySelector("#hero-settings")?.addEventListener("click",()=>window.openModal(document.querySelector("#settings")));document.querySelector("#side-browse-models")?.addEventListener("click",window.openModelPicker)}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{bindExtraButtons();window.renderApp?.()},{once:true});else{bindExtraButtons();window.setTimeout(()=>window.renderApp?.(),0)}})();
+(()=>{
+  const MODELS=[
+    ["GPT-6 Astra","OpenAI"],["GPT-5.6 Cyber","OpenAI"],["Claude Fable 5.1","Anthropic"],["Claude Mythos 5.1","Anthropic"],["Claude Opus 5","Anthropic"],["Gemini 3.8 Flash","Google"],["Gemini 3.8 Flash Cyber","Google"],["Grok 4.6","xAI"],["DeepSeek V4.1 Flash","DeepSeek"],["DeepSeek V4 Pro","DeepSeek"],["Qwen3.8-Max","Alibaba"],["Qwen3.8 Flash-Next","Alibaba"],["Kimi K3","Moonshot AI"],["GLM-5.3","Z.ai"],["GLM-5.3 Flash","Z.ai"],["Muse Spark 1.3","Meta"],["Nemotron 3 Ultra","NVIDIA"],["Mistral Medium 3.5","Mistral AI"],["Command A+","Cohere"],["Atria Dawn Preview","Atria"]
+  ];
+  const esc=v=>String(v??"").replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
+  const initial=v=>String(v||"AI").replace(/[^A-Za-z]/g,"").slice(0,2).toUpperCase()||"AI";
+
+  function renderDeck(){
+    const target=document.querySelector("#featured-models");
+    if(!target||target.dataset.patching==="1") return;
+    if(target.children.length===20) return;
+    target.dataset.patching="1";
+    target.innerHTML=MODELS.map(([name,company],i)=>`<button class="featured-model model-card" type="button" data-model-name="${esc(name)}"><span class="provider-logo provider-${i+1}">${initial(company)}</span><span class="featured-copy"><b>${esc(name)}</b><small>${esc(company)}</small></span><span class="model-index">${String(i+1).padStart(2,"0")}</span></button>`).join("");
+    target.querySelectorAll("[data-model-name]").forEach(button=>button.addEventListener("click",()=>choose(button.dataset.modelName)));
+    window.setTimeout(()=>{delete target.dataset.patching},0);
+  }
+
+  function choose(name){
+    const picker=document.querySelector("#model-picker");
+    if(!picker) return;
+    picker.click();
+    const tryPick=()=>{
+      const buttons=[...document.querySelectorAll("#model-list .model-option")];
+      const match=buttons.find(b=>b.textContent.includes(name)&&!b.disabled);
+      if(match){match.click();return true}
+      return false;
+    };
+    if(!tryPick()) window.setTimeout(tryPick,160);
+    if(!tryPick()) window.setTimeout(tryPick,420);
+  }
+
+  function syncHero(){
+    const label=document.querySelector("#model-label"), name=document.querySelector("#console-model-name");
+    const company=document.querySelector("#console-model-company");
+    if(name&&label) name.textContent=label.textContent.trim();
+    if(company&&label){
+      const item=MODELS.find(m=>m[0]===label.textContent.trim());
+      company.textContent=item?item[1]:"AI";
+    }
+  }
+
+  function bind(){
+    document.querySelector("#hero-models")?.addEventListener("click",()=>document.querySelector("#model-picker")?.click());
+    document.querySelector("#hero-settings")?.addEventListener("click",()=>document.querySelector("#top-settings")?.click());
+    document.querySelector("#side-browse-models")?.addEventListener("click",()=>document.querySelector("#model-picker")?.click());
+    renderDeck();
+    syncHero();
+    const target=document.querySelector("#featured-models");
+    if(target){
+      const observer=new MutationObserver(()=>renderDeck());
+      observer.observe(target,{childList:true});
+    }
+    const label=document.querySelector("#model-label");
+    if(label){new MutationObserver(syncHero).observe(label,{characterData:true,childList:true,subtree:true});}
+    window.setInterval(syncHero,500);
+  }
+
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",bind,{once:true}); else bind();
+})();
