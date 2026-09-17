@@ -1,6 +1,8 @@
 const DEFAULT_MODEL = "openai/gpt-6-astra";
-const STORAGE_KEY = "gpt6-astra-state-v1";
-const SYSTEM_PROMPT = "You are GPT-6 Astra, a helpful, accurate, practical AI assistant. Use clear structure, explain assumptions, and provide working code when asked. Avoid claiming actions you cannot perform.";
+const STORAGE_KEY = "gpt6-astra-state-v2";
+const SYSTEM_PROMPT = "You are GPT-6 Astra, a helpful, accurate, practical AI assistant. Use clear structure, explain assumptions, and provide working code when asked. Never claim you performed actions you cannot perform.";
+const MAX_HISTORY_MESSAGES = 20;
+const MAX_FEATURED_MODELS = 20;
 
 const emptyState = {
   chats: [],
@@ -8,6 +10,7 @@ const emptyState = {
   settings: {
     theme: "dark",
     model: DEFAULT_MODEL,
+    modelName: "GPT-6 Astra",
     verbosity: "medium",
     reasoning: "medium"
   }
@@ -17,6 +20,8 @@ let state = loadState();
 let attachedFile = null;
 let generating = false;
 let recognition = null;
+let availableModels = [];
+let modelLoadPromise = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -44,28 +49,48 @@ const els = {
   toasts: $("#toasts")
 };
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(emptyState);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("gpt6-astra-state-v1");
+    if (!raw) return clone(emptyState);
 
-    const saved = JSON.parse(raw);
+    const saved = JSON.parse(raw) || {};
+    const chats = Array.isArray(saved.chats)
+      ? saved.chats.map((chat) => ({
+          id: String(chat?.id || uid()),
+          title: String(chat?.title || "New conversation"),
+          createdAt: Number(chat?.createdAt) || Date.now(),
+          updatedAt: Number(chat?.updatedAt) || Date.now(),
+          messages: Array.isArray(chat?.messages)
+            ? chat.messages
+                .filter((message) => message && (message.role === "user" || message.role === "assistant"))
+                .map((message) => ({
+                  role: message.role,
+                  content: typeof message.content === "string" ? message.content : "",
+                  createdAt: Number(message.createdAt) || Date.now()
+                }))
+            : []
+        }))
+      : [];
+
+    const settings = {
+      ...emptyState.settings,
+      ...(saved.settings || {})
+    };
+
     return {
-      ...structuredClone(emptyState),
+      ...clone(emptyState),
       ...saved,
-      settings: {
-        ...emptyState.settings,
-        ...(saved?.settings || {})
-      },
-      chats: Array.isArray(saved?.chats)
-        ? saved.chats.map((chat) => ({
-            ...chat,
-            messages: Array.isArray(chat?.messages) ? chat.messages : []
-          }))
-        : []
+      activeId: saved.activeId || null,
+      settings,
+      chats
     };
   } catch {
-    return structuredClone(emptyState);
+    return clone(emptyState);
   }
 }
 
@@ -114,7 +139,7 @@ function toast(message, type = "") {
   element.className = `toast ${type}`.trim();
   element.textContent = message;
   els.toasts.appendChild(element);
-  setTimeout(() => element.remove(), 3500);
+  window.setTimeout(() => element.remove(), 3500);
 }
 
 function escapeHtml(value) {
@@ -144,13 +169,12 @@ function formatTime(timestamp) {
 
 function renderHistory() {
   if (!els.history) return;
-
   const query = String(els.search?.value || "").trim().toLowerCase();
   els.history.innerHTML = "";
 
-  const chats = state.chats.filter((chat) =>
-    !query || String(chat.title || "").toLowerCase().includes(query)
-  );
+  const chats = state.chats
+    .filter((chat) => !query || String(chat.title || "").toLowerCase().includes(query))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
   if (els.historyEmpty) els.historyEmpty.hidden = chats.length > 0;
 
@@ -160,13 +184,14 @@ function renderHistory() {
     row.innerHTML = `
       <span class="hist-icon">◌</span>
       <span class="hist-name"></span>
-      <button class="rename" type="button" title="Rename chat">⋯</button>
+      <button class="rename" type="button" title="Rename chat" aria-label="Rename chat">⋯</button>
     `;
     row.querySelector(".hist-name").textContent = chat.title || "New conversation";
     row.addEventListener("click", (event) => {
       if (event.target.closest(".rename")) return;
       state.activeId = chat.id;
       saveState();
+      closeAllModals();
       renderApp();
     });
     row.querySelector(".rename").addEventListener("click", (event) => {
@@ -192,16 +217,15 @@ function renderMessages() {
   if (!chat) return;
 
   for (const [index, message] of chat.messages.entries()) {
-    const article = document.createElement("article");
     const role = message?.role === "user" ? "user" : "assistant";
     const content = typeof message?.content === "string" ? message.content : "";
-
+    const article = document.createElement("article");
     article.className = `message ${role}`;
     article.innerHTML = `
       <div class="avatar">${role === "user" ? "YOU" : "✦"}</div>
       <div class="message-body">
         <div class="message-head">
-          <span>${role === "user" ? "You" : "GPT-6 Astra"}</span>
+          <span>${role === "user" ? "You" : escapeHtml(state.settings.modelName || "AI")}</span>
           ${message?.createdAt ? `<span>· ${formatTime(message.createdAt)}</span>` : ""}
         </div>
         <div class="message-text">${renderText(content)}</div>
@@ -231,7 +255,7 @@ function renderMessages() {
       actions.appendChild(edit);
     }
 
-    if (role === "assistant" && index === chat.messages.length - 1 && chat.messages.length > 1) {
+    if (role === "assistant" && index === chat.messages.length - 1 && chat.messages.length > 1 && content) {
       const regenerate = document.createElement("button");
       regenerate.type = "button";
       regenerate.textContent = "Regenerate";
@@ -251,31 +275,33 @@ function renderApp() {
   const chat = activeChat();
   if (els.title) els.title.textContent = chat?.title || "New conversation";
   if (els.modelLabel) {
-    els.modelLabel.textContent = (state.settings.model || DEFAULT_MODEL).split("/").pop();
+    els.modelLabel.textContent = state.settings.modelName || modelDisplayName(state.settings.model) || "Select model";
   }
   renderHistory();
   renderMessages();
   applyTheme();
   syncSettingsControls();
+  updateSendState();
 }
 
 function buildPrompt(chat) {
   const history = (chat?.messages || [])
     .filter((message) =>
       (message?.role === "user" || message?.role === "assistant") &&
-      typeof message?.content === "string" &&
+      typeof message.content === "string" &&
       message.content.trim().length > 0
     )
-    .slice(-20)
+    .slice(-MAX_HISTORY_MESSAGES)
     .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content.trim()}`)
     .join("\n\n");
 
-  return `${SYSTEM_PROMPT}\n\n${history}`;
+  return `${SYSTEM_PROMPT}\n\n${history}`.trim();
 }
 
 function apiOptions() {
   const options = {
-    model: state.settings.model || DEFAULT_MODEL
+    model: state.settings.model || DEFAULT_MODEL,
+    normalize: true
   };
 
   if (["low", "medium", "high"].includes(state.settings.verbosity)) {
@@ -289,9 +315,60 @@ function apiOptions() {
   return options;
 }
 
-function getResponseText(response) {
-  const content = response?.message?.content ?? response?.text ?? response;
-  return typeof content === "string" ? content : "";
+function extractResponseText(response) {
+  const content = response?.message?.content ?? response?.text;
+  if (typeof content === "string") return content.trim();
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (typeof part?.text === "string") return part.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  return typeof response === "string" ? response.trim() : "";
+}
+
+function friendlyAiError(error) {
+  const raw = String(error?.message || error || "Unknown error");
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("credit") || lower.includes("quota") || lower.includes("limit")) {
+    return "Puter AI credits or usage limit reached. Try again after the limit resets, or switch to another available model.";
+  }
+
+  if (lower.includes("model") && (lower.includes("not found") || lower.includes("unsupported") || lower.includes("invalid"))) {
+    return "That model is not currently available through Puter. Open the model picker and choose an available model.";
+  }
+
+  if (lower.includes("content") && lower.includes("property")) {
+    return "The selected model request format was rejected. Please switch to another available model and try again.";
+  }
+
+  return raw;
+}
+
+async function requestCompletion(prompt, file = null) {
+  const puterApi = window.puter?.ai;
+  if (!puterApi || typeof puterApi.chat !== "function") {
+    throw new Error("Puter.js is not ready. Please refresh the page and try again.");
+  }
+
+  const options = apiOptions();
+  const response = file
+    ? await puterApi.chat(prompt, file, false, options)
+    : await puterApi.chat(prompt, options);
+
+  const text = extractResponseText(response);
+  if (!text) {
+    throw new Error("The model returned an empty response.");
+  }
+  return text;
 }
 
 async function sendMessage(textOverride = null) {
@@ -310,12 +387,7 @@ async function sendMessage(textOverride = null) {
   const file = attachedFile;
   const userText = text || "Please analyze the attached image.";
 
-  chat.messages.push({
-    role: "user",
-    content: userText,
-    createdAt: Date.now()
-  });
-
+  chat.messages.push({ role: "user", content: userText, createdAt: Date.now() });
   if (chat.messages.length === 1) chat.title = makeTitle(userText);
   chat.updatedAt = Date.now();
   saveState();
@@ -323,31 +395,16 @@ async function sendMessage(textOverride = null) {
   if (els.input) els.input.value = "";
   autoSize();
   clearAttachment();
-  renderApp();
 
+  const assistant = { role: "assistant", content: "", createdAt: Date.now() };
+  chat.messages.push(assistant);
   generating = true;
   updateSendState();
-
-  const assistant = {
-    role: "assistant",
-    content: "",
-    createdAt: Date.now()
-  };
-  chat.messages.push(assistant);
-  renderMessages();
+  renderApp();
 
   try {
     const prompt = buildPrompt(chat);
-    const options = apiOptions();
-
-    let response;
-    if (file) {
-      response = await window.puter.ai.chat(prompt, file, false, options);
-    } else {
-      response = await window.puter.ai.chat(prompt, options);
-    }
-
-    assistant.content = getResponseText(response) || "I couldn't read the model response.";
+    assistant.content = await requestCompletion(prompt, file);
     chat.updatedAt = Date.now();
     saveState();
     renderMessages();
@@ -355,14 +412,14 @@ async function sendMessage(textOverride = null) {
     chat.messages.pop();
     saveState();
     renderMessages();
-    toast(`AI request failed: ${error?.message || String(error)}`, "error");
+    toast(`AI request failed: ${friendlyAiError(error)}`, "error");
   } finally {
     generating = false;
     updateSendState();
   }
 }
 
-function regenerateLast() {
+async function regenerateLast() {
   if (generating) return;
   const chat = activeChat();
   if (!chat || chat.messages.length < 2) return;
@@ -372,35 +429,21 @@ function regenerateLast() {
 
   chat.messages.pop();
   saveState();
-
-  const lastUser = [...chat.messages].reverse().find((message) => message.role === "user");
-  if (!lastUser) return;
-
-  runWithExistingChat(chat, lastUser.content);
+  renderMessages();
+  await runWithExistingChat(chat);
 }
 
-async function runWithExistingChat(chat, userText) {
-  if (generating) return;
-  if (!window.puter?.ai || typeof window.puter.ai.chat !== "function") {
-    toast("Puter.js is not ready. Please refresh the page and try again.", "error");
-    return;
-  }
+async function runWithExistingChat(chat) {
+  if (generating || !chat) return;
 
-  const assistant = {
-    role: "assistant",
-    content: "",
-    createdAt: Date.now()
-  };
+  const assistant = { role: "assistant", content: "", createdAt: Date.now() };
   chat.messages.push(assistant);
-  renderMessages();
-
   generating = true;
   updateSendState();
+  renderMessages();
 
   try {
-    const prompt = buildPrompt(chat);
-    const response = await window.puter.ai.chat(prompt, apiOptions());
-    assistant.content = getResponseText(response) || "I couldn't read the model response.";
+    assistant.content = await requestCompletion(buildPrompt(chat));
     chat.updatedAt = Date.now();
     saveState();
     renderMessages();
@@ -408,7 +451,7 @@ async function runWithExistingChat(chat, userText) {
     chat.messages.pop();
     saveState();
     renderMessages();
-    toast(`AI request failed: ${error?.message || String(error)}`, "error");
+    toast(`AI request failed: ${friendlyAiError(error)}`, "error");
   } finally {
     generating = false;
     updateSendState();
@@ -420,12 +463,13 @@ function editMessage(index) {
   const message = chat?.messages?.[index];
   if (!chat || message?.role !== "user") return;
 
+  const original = message.content || "";
   chat.messages = chat.messages.slice(0, index);
   saveState();
   renderMessages();
 
   if (els.input) {
-    els.input.value = message.content || "";
+    els.input.value = original;
     autoSize();
     els.input.focus();
   }
@@ -437,6 +481,7 @@ function updateSendState() {
   els.send.classList.toggle("stop", generating);
   els.send.innerHTML = generating ? "■" : "↑";
   els.send.title = generating ? "Generating" : "Send";
+  els.send.setAttribute("aria-busy", generating ? "true" : "false");
 }
 
 function autoSize() {
@@ -464,19 +509,15 @@ function setAttachment(file) {
   attachedFile = file;
   if (els.attachment) {
     els.attachment.hidden = false;
-    els.attachment.innerHTML = `<span>▧ ${escapeHtml(file.name)}</span><button type="button" id="remove-attachment">×</button>`;
+    els.attachment.innerHTML = `<span>▧ ${escapeHtml(file.name)}</span><button type="button" id="remove-attachment" aria-label="Remove attachment">×</button>`;
     els.attachment.querySelector("#remove-attachment")?.addEventListener("click", clearAttachment);
   }
 }
 
 function applyTheme() {
   document.body.classList.remove("light");
-  if (
-    state.settings.theme === "light" ||
-    (state.settings.theme === "system" && window.matchMedia?.("(prefers-color-scheme: light)").matches)
-  ) {
-    document.body.classList.add("light");
-  }
+  const systemLight = state.settings.theme === "system" && window.matchMedia?.("(prefers-color-scheme: light)").matches;
+  if (state.settings.theme === "light" || systemLight) document.body.classList.add("light");
 }
 
 function syncSettingsControls() {
@@ -487,63 +528,230 @@ function syncSettingsControls() {
 }
 
 function openModal(modal) {
-  if (!modal || !els.modalBg) return;
-  els.modalBg.hidden = false;
-  modal.hidden = false;
+  if (!modal) return;
+  if (els.settings) els.settings.hidden = modal !== els.settings;
+  if (els.modelModal) els.modelModal.hidden = modal !== els.modelModal;
+  if (els.modalBg) els.modalBg.hidden = false;
+  document.body.classList.add("modal-open");
 }
 
-function closeModals() {
+function closeAllModals() {
+  if (els.settings) els.settings.hidden = true;
+  if (els.modelModal) els.modelModal.hidden = true;
   if (els.modalBg) els.modalBg.hidden = true;
-  [els.settings, els.modelModal].forEach((modal) => {
-    if (modal) modal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function renderModelModal(models) {
+  if (!els.modelModal) return;
+  const current = state.settings.model;
+  const content = models.length
+    ? models.map((model) => {
+        const selected = model.requestId === current;
+        return `
+          <button class="model-option ${selected ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.requestId)}">
+            <i></i>
+            <span><b>${escapeHtml(model.name)}</b><small>${escapeHtml(model.providerLabel)} · ${escapeHtml(model.id)}</small></span>
+            <span aria-hidden="true">${selected ? "✓" : ""}</span>
+          </button>
+        `;
+      }).join("")
+    : `<div class="model-help">Could not load the current Puter model catalog. The default GPT-6 Astra model can still be used.</div>`;
+
+  els.modelModal.innerHTML = `
+    <div class="modal-head"><div><small>MODEL</small><h2>Choose model</h2></div><button class="icon close-model-modal" type="button" aria-label="Close">×</button></div>
+    <div class="model-list" style="max-height:58vh;overflow:auto;display:grid;gap:8px">${content}</div>
+    <p class="model-help">Showing up to 20 current, high-profile models exposed by Puter. Availability can change with provider limits.</p>
+  `;
+
+  els.modelModal.querySelector(".close-model-modal")?.addEventListener("click", closeAllModals);
+  els.modelModal.querySelectorAll("[data-model-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.getAttribute("data-model-id");
+      const selected = models.find((model) => model.requestId === id);
+      if (!id || !selected) return;
+      state.settings.model = selected.requestId;
+      state.settings.modelName = selected.name;
+      saveState();
+      closeAllModals();
+      renderApp();
+      toast(`${selected.name} selected`);
+    });
   });
 }
 
-function closeSidebar() {
-  document.body.classList.remove("sidebar-open");
+function modelDisplayName(modelId) {
+  const match = availableModels.find((model) => model.requestId === modelId);
+  return match?.name || String(modelId || "").split("/").pop() || "Select model";
 }
 
-function startNewChat() {
-  const now = Date.now();
-  const chat = {
-    id: uid(),
-    title: "New conversation",
-    createdAt: now,
-    updatedAt: now,
-    messages: []
+function modelRequestId(model) {
+  const id = String(model?.id || "").trim();
+  const provider = String(model?.provider || "").trim();
+  if (!id) return "";
+  if (id.includes("/")) return id;
+  if (provider && provider !== "openrouter") return `${provider}/${id}`;
+  return id;
+}
+
+function modelSearchText(model) {
+  return [model?.id, model?.name, ...(Array.isArray(model?.aliases) ? model.aliases : []), model?.provider]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+const FEATURE_PATTERNS = [
+  /gpt[- ]?6[^a-z0-9]?astra/i,
+  /gpt[- ]?5\.6[^a-z0-9]?(sol|terra|luna)/i,
+  /claude[^\n]*(fable|mythos|opus ?5|sonnet ?5)/i,
+  /gemini[^\n]*3\.8[^\n]*(flash|cyber)/i,
+  /grok[^\n]*4\.6/i,
+  /deepseek[^\n]*v4\.1/i,
+  /qwen[^\n]*3\.8/i,
+  /kimi[^\n]*k3/i,
+  /glm[^\n]*5\.3/i,
+  /mistral[^\n]*(medium ?3\.5)/i,
+  /command[^\n]*a\+/i,
+  /muse[^\n]*spark/i,
+  /nemotron[^\n]*3/i
+];
+
+function scoreModel(model) {
+  const text = modelSearchText(model);
+  const provider = String(model?.provider || "").toLowerCase();
+  let score = 0;
+
+  FEATURE_PATTERNS.forEach((pattern, index) => {
+    if (pattern.test(text)) score += 1000 - index * 30;
+  });
+
+  const providerRank = {
+    openai: 90,
+    anthropic: 88,
+    google: 86,
+    xai: 84,
+    deepseek: 82,
+    alibaba: 80,
+    moonshot: 78,
+    zai: 76,
+    mistral: 74,
+    meta: 72,
+    nvidia: 70,
+    cohere: 68
   };
-  state.chats.unshift(chat);
-  state.activeId = chat.id;
-  saveState();
-  if (els.input) els.input.value = "";
+
+  score += providerRank[provider] || 20;
+  if (model?.context) score += Math.min(Number(model.context) / 100000, 20);
+  return score;
+}
+
+async function loadModels() {
+  if (modelLoadPromise) return modelLoadPromise;
+  modelLoadPromise = (async () => {
+    try {
+      if (!window.puter?.ai || typeof window.puter.ai.listModels !== "function") {
+        availableModels = [];
+        return [];
+      }
+
+      const rawModels = await window.puter.ai.listModels();
+      const candidates = Array.isArray(rawModels) ? rawModels : [];
+      const normalized = candidates
+        .map((model) => ({
+          raw: model,
+          id: String(model?.id || "").trim(),
+          requestId: modelRequestId(model),
+          providerLabel: String(model?.provider || "Puter").trim() || "Puter",
+          name: String(model?.name || model?.id || "AI model").trim(),
+          aliases: Array.isArray(model?.aliases) ? model.aliases : [],
+          context: Number(model?.context) || 0
+        }))
+        .filter((model) => model.id && model.requestId);
+
+      const unique = new Map();
+      for (const model of normalized) {
+        const key = model.requestId.toLowerCase();
+        if (!unique.has(key)) unique.set(key, model);
+      }
+
+      const sorted = [...unique.values()].sort((a, b) => scoreModel(b.raw) - scoreModel(a.raw));
+      const featured = sorted.filter((model) => FEATURE_PATTERNS.some((pattern) => pattern.test(modelSearchText(model.raw))));
+      const remainder = sorted.filter((model) => !featured.includes(model));
+      availableModels = [...featured, ...remainder].slice(0, MAX_FEATURED_MODELS);
+
+      const defaultMatch = availableModels.find((model) =>
+        model.requestId === DEFAULT_MODEL || model.id === "gpt-6-astra" || /gpt[- ]?6[^a-z0-9]?astra/i.test(model.name)
+      );
+      if (!state.settings.model && defaultMatch) {
+        state.settings.model = defaultMatch.requestId;
+        state.settings.modelName = defaultMatch.name;
+      }
+
+      return availableModels;
+    } catch (error) {
+      console.warn("Could not load Puter model catalog:", error);
+      availableModels = [];
+      return [];
+    }
+  })();
+
+  return modelLoadPromise;
+}
+
+async function openModelPicker() {
+  openModal(els.modelModal);
+  renderModelModal(availableModels);
+  if (!availableModels.length) {
+    await loadModels();
+    renderModelModal(availableModels);
+  }
+}
+
+function newChat() {
+  closeAllModals();
+  state.activeId = null;
+  ensureChat();
+  if (els.input) {
+    els.input.value = "";
+    els.input.focus();
+  }
   clearAttachment();
   renderApp();
-  els.input?.focus();
-  closeSidebar();
 }
 
-function exportData() {
-  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), ...state }, null, 2);
-  const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `gpt6-astra-chats-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
-  toast("Chat data exported");
+function exportChats() {
+  try {
+    const payload = JSON.stringify({ exportedAt: new Date().toISOString(), ...state }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `gpt-6-astra-chats-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast("Chats exported");
+  } catch {
+    toast("Could not export chats", "error");
+  }
 }
 
 function clearData() {
-  if (!window.confirm("Clear every locally saved conversation and setting?")) return;
+  const confirmed = window.confirm("Clear all locally saved chats and settings?");
+  if (!confirmed) return;
   localStorage.removeItem(STORAGE_KEY);
-  state = structuredClone(emptyState);
+  localStorage.removeItem("gpt6-astra-state-v1");
+  state = clone(emptyState);
+  attachedFile = null;
   ensureChat();
+  saveState();
   renderApp();
   toast("Local data cleared");
 }
 
-function handleVoice() {
+function startVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     toast("Voice input is not supported in this browser.", "error");
@@ -553,6 +761,7 @@ function handleVoice() {
   if (recognition) {
     recognition.stop();
     recognition = null;
+    toast("Voice input stopped");
     return;
   }
 
@@ -561,24 +770,22 @@ function handleVoice() {
   recognition.interimResults = true;
   recognition.continuous = false;
 
-  const base = els.input?.value || "";
+  let finalText = "";
   recognition.onresult = (event) => {
-    const spoken = [...event.results].map((result) => result[0].transcript).join("");
+    let interim = "";
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const transcript = event.results[index][0]?.transcript || "";
+      if (event.results[index].isFinal) finalText += transcript;
+      else interim += transcript;
+    }
     if (els.input) {
-      els.input.value = `${base}${base ? " " : ""}${spoken}`.trim();
+      const base = els.input.value.replace(/\s+$/, "");
+      els.input.value = `${base}${base ? " " : ""}${finalText}${interim}`.trimStart();
       autoSize();
     }
   };
-
-  recognition.onerror = () => {
-    toast("Voice input could not start.", "error");
-    recognition = null;
-  };
-
-  recognition.onend = () => {
-    recognition = null;
-  };
-
+  recognition.onerror = () => toast("Voice input could not be started.", "error");
+  recognition.onend = () => { recognition = null; };
   recognition.start();
   toast("Listening…");
 }
@@ -593,60 +800,81 @@ function bindEvents() {
     }
   });
 
-  $("#new-chat")?.addEventListener("click", startNewChat);
-  $("#home")?.addEventListener("click", () => {
-    if (!activeChat()?.messages?.length) renderApp();
-    else startNewChat();
-  });
+  els.file?.addEventListener("change", (event) => setAttachment(event.target.files?.[0] || null));
   els.search?.addEventListener("input", renderHistory);
-  els.file?.addEventListener("change", (event) => setAttachment(event.target.files?.[0]));
-  $("#voice")?.addEventListener("click", handleVoice);
-  $("#open-settings")?.addEventListener("click", () => openModal(els.settings));
+  $("#new-chat")?.addEventListener("click", newChat);
+  $("#home")?.addEventListener("click", newChat);
+  $("#voice")?.addEventListener("click", startVoiceInput);
+  $("#export-data")?.addEventListener("click", exportChats);
+  $("#clear-data")?.addEventListener("click", clearData);
+  $("#model-picker")?.addEventListener("click", openModelPicker);
   $("#top-settings")?.addEventListener("click", () => openModal(els.settings));
-  $("#model-picker")?.addEventListener("click", () => openModal(els.modelModal));
-  $("#requested-model")?.addEventListener("click", () => {
-    state.settings.model = DEFAULT_MODEL;
-    saveState();
-    renderApp();
-    closeModals();
-    toast("GPT-6 Astra selected");
-  });
-  $$(".close-modal").forEach((button) => button.addEventListener("click", closeModals));
-  els.modalBg?.addEventListener("click", closeModals);
+  $("#open-settings")?.addEventListener("click", () => openModal(els.settings));
+  els.modalBg?.addEventListener("click", closeAllModals);
 
+  $$(".close-modal").forEach((button) => button.addEventListener("click", closeAllModals));
   $("#save-settings")?.addEventListener("click", () => {
-    state.settings = {
-      theme: els.theme?.value || "dark",
-      model: els.model?.value?.trim() || DEFAULT_MODEL,
-      verbosity: els.verbosity?.value || "medium",
-      reasoning: els.reasoning?.value || "medium"
-    };
+    state.settings.theme = els.theme?.value || "dark";
+    state.settings.model = els.model?.value?.trim() || DEFAULT_MODEL;
+    state.settings.modelName = modelDisplayName(state.settings.model);
+    state.settings.verbosity = els.verbosity?.value || "medium";
+    state.settings.reasoning = els.reasoning?.value || "medium";
     saveState();
+    closeAllModals();
     renderApp();
-    closeModals();
     toast("Settings saved");
   });
 
-  $("#export-data")?.addEventListener("click", exportData);
-  $("#clear-data")?.addEventListener("click", clearData);
-  $("#open-sidebar")?.addEventListener("click", () => document.body.classList.add("sidebar-open"));
-  $("#close-sidebar")?.addEventListener("click", closeSidebar);
-  $("#backdrop")?.addEventListener("click", closeSidebar);
-
-  $$(".suggestions button").forEach((button) => {
-    button.addEventListener("click", () => sendMessage(button.dataset.prompt || ""));
+  $$("[data-prompt]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const prompt = button.getAttribute("data-prompt") || "";
+      if (els.input) els.input.value = prompt;
+      autoSize();
+      els.input?.focus();
+    });
   });
 
-  if (window.matchMedia) {
-    window.matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
+  $("#open-sidebar")?.addEventListener("click", () => document.body.classList.add("sidebar-open"));
+  $("#close-sidebar")?.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
+  $("#backdrop")?.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeAllModals();
+      document.body.classList.remove("sidebar-open");
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      newChat();
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+      event.preventDefault();
+      els.search?.focus();
+    }
+  });
+
+  window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
+}
+
+async function init() {
+  bindEvents();
+  ensureChat();
+  renderApp();
+  autoSize();
+
+  await loadModels();
+  if (availableModels.length) {
+    const exact = availableModels.find((model) => model.requestId === state.settings.model);
+    if (exact) {
+      state.settings.modelName = exact.name;
+      saveState();
+      renderApp();
+    }
   }
 }
 
-function init() {
-  bindEvents();
-  if (!state.chats.length) ensureChat();
-  renderApp();
-  autoSize();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init, { once: true });
+} else {
+  init();
 }
-
-init();
