@@ -10,9 +10,24 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260917-7">
-  <link rel="stylesheet" href="final-ui.css?v=20260917-5">
-  <link rel="stylesheet" href="layout-fix.css?v=20260917-7">
+  <link rel="stylesheet" href="styles.css?v=20260917-8">
+  <link rel="stylesheet" href="final-ui.css?v=20260917-8">
+  <link rel="stylesheet" href="layout-fix.css?v=20260917-8">
+  <style>
+    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:none!important;min-height:100%!important;overflow:hidden!important}
+    .app-shell{display:flex!important;flex-direction:row!important;align-items:stretch!important;width:100%!important;max-width:none!important;height:100dvh!important;min-height:100dvh!important}
+    .sidebar{flex:0 0 300px!important;width:300px!important;max-width:300px!important;position:relative!important;transform:none!important;left:auto!important;top:auto!important}
+    .main{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:none!important;height:100dvh!important}
+    .welcome,.messages{width:min(1080px,calc(100% - 48px))!important;max-width:1080px!important;margin-left:auto!important;margin-right:auto!important}
+    .composer-box,.hint{width:min(760px,100%)!important;max-width:760px!important}
+    .hero-copy h1,.welcome h1{font-size:clamp(32px,3.4vw,52px)!important}
+    @media (max-width:860px){
+      .app-shell{display:block!important}
+      .sidebar{position:fixed!important;left:0!important;top:0!important;bottom:0!important;transform:translateX(-105%)!important;z-index:40!important}
+      .sidebar-open .sidebar{transform:translateX(0)!important}
+      .main{width:100%!important;height:100dvh!important}
+    }
+  </style>
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div><div class="grid-noise"></div>
@@ -46,7 +61,7 @@
   <section class="modal settings-modal" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="modal-head"><div><span class="eyebrow">CONTROL CENTER</span><h2 id="settings-title">Workspace settings</h2><p>Adjust the way Astra behaves in this browser.</p></div><button class="icon close-modal" type="button" aria-label="Close">×</button></div><div class="settings-grid"><label class="setting"><span><b>Theme</b><small>Choose how Astra looks.</small></span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label class="setting"><span><b>Response style</b><small>Set the typical answer length.</small></span><select id="verbosity"><option value="low">Concise</option><option value="medium">Balanced</option><option value="high">Detailed</option></select></label><label class="setting"><span><b>Reasoning effort</b><small>Sent when supported by the selected model.</small></span><select id="reasoning"><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Max</option></select></label></div><div class="selected-model-card" id="selected-model-card"></div><p class="note"><span>✦</span> AI access is provided by Puter.js. Provider usage and availability are controlled by Puter. No provider API key is embedded in this site.</p><div class="modal-actions"><button class="secondary close-modal" type="button">Close</button><button class="primary" id="save-settings" type="button">Save settings</button></div></section>
   <div class="toasts" id="toasts"></div>
   <script src="https://js.puter.com/v2/"></script>
-  <script src="script.js?v=20260917-7"></script>
-  <script src="model-ui-patches.js?v=20260917-6"></script>
+  <script src="script.js?v=20260917-8"></script>
+  <script src="model-ui-patches.js?v=20260917-8"></script>
 </body>
 </html>
