@@ -28,6 +28,28 @@ const MODEL_CHOICES = [
   { name: "Atria Dawn Preview", company: "Atria", candidates: ["atria/atria-dawn-preview"] }
 ];
 
+const PROVIDER_ALIASES = {
+  openai: "openai",
+  anthropic: "anthropic",
+  claude: "anthropic",
+  google: "google",
+  xai: "x-ai",
+  "x-ai": "x-ai",
+  deepseek: "deepseek",
+  qwen: "qwen",
+  alibaba: "qwen",
+  moonshot: "moonshotai",
+  moonshotai: "moonshotai",
+  zai: "z-ai",
+  "z-ai": "z-ai",
+  mistral: "mistralai",
+  mistralai: "mistralai",
+  meta: "meta",
+  nvidia: "nvidia",
+  cohere: "cohere",
+  atria: "atria"
+};
+
 const emptyState = {
   chats: [],
   activeId: null,
@@ -324,19 +346,17 @@ function modelDisplayName(modelId) {
   return live?.name || String(modelId || "").split("/").pop() || DEFAULT_MODEL_NAME;
 }
 
+function canonicalProvider(provider) {
+  const key = String(provider || "").trim().toLowerCase();
+  return PROVIDER_ALIASES[key] || key;
+}
+
 function modelRequestId(model) {
   const id = String(model?.id || "").trim();
-  const provider = String(model?.provider || "").trim();
+  const provider = canonicalProvider(model?.provider);
   if (!id) return "";
   if (id.includes("/")) return id;
   return provider ? `${provider}/${id}` : id;
-}
-
-function modelSearchText(model) {
-  return [model?.id, model?.name, model?.provider, ...(Array.isArray(model?.aliases) ? model.aliases : [])]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
 }
 
 function normalizeText(value) {
@@ -344,16 +364,28 @@ function normalizeText(value) {
 }
 
 function resolveLiveModel(choice) {
-  const candidates = choice?.candidates || [];
-  const exactId = availableModels.find((model) => candidates.some((id) => model.requestId.toLowerCase() === id.toLowerCase() || model.id.toLowerCase() === id.toLowerCase()));
-  if (exactId) return exactId;
+  if (!choice) return null;
+  const candidates = choice.candidates || [];
 
-  const targetName = normalizeText(choice?.name);
+  for (const candidate of candidates) {
+    const [candidateProvider, candidateId] = candidate.includes("/") ? candidate.split(/\/(.+)/) : ["", candidate];
+    const match = availableModels.find((model) =>
+      model.requestId.toLowerCase() === candidate.toLowerCase() ||
+      model.id.toLowerCase() === String(candidateId || "").toLowerCase()
+    );
+    if (match) return { ...match, requestId: candidate, canonicalCandidate: candidate, candidateProvider };
+  }
+
+  const targetName = normalizeText(choice.name);
   if (!targetName) return null;
-  return availableModels.find((model) => {
+  const matchByName = availableModels.find((model) => {
     const names = [model.name, model.id, ...(model.aliases || [])];
     return names.some((name) => normalizeText(name) === targetName);
-  }) || null;
+  });
+  if (!matchByName) return null;
+
+  const canonicalCandidate = candidates[0] || matchByName.requestId;
+  return { ...matchByName, requestId: canonicalCandidate };
 }
 
 function isModelAvailable(choice) {
@@ -534,6 +566,16 @@ async function loadModels(force = false) {
   }
 }
 
+function modelAcceptsImages(liveModel) {
+  const raw = liveModel?.raw || {};
+  const candidates = [raw.input_modalities, raw.modalities, raw.input_types, raw.capabilities]
+    .flatMap((value) => Array.isArray(value) ? value : typeof value === "string" ? [value] : [])
+    .map((value) => String(value).toLowerCase());
+
+  if (!candidates.length) return true;
+  return candidates.some((value) => value.includes("image") || value.includes("vision") || value.includes("multimodal"));
+}
+
 function buildPrompt(chat) {
   const history = (chat?.messages || [])
     .filter((message) =>
@@ -547,18 +589,10 @@ function buildPrompt(chat) {
   return `${SYSTEM_PROMPT}\n\n${history}`.trim();
 }
 
-function supportsReasoning() {
-  return ["GPT-6 Astra", "Claude Fable 5.1", "Claude Mythos 5.1", "Claude Opus 5", "Grok 4.6", "DeepSeek V4.1 Flash", "DeepSeek V4 Pro", "Qwen3.8-Max", "Kimi K3", "GLM-5.3", "GLM-5.3 Flash", "Nemotron 3 Ultra", "Mistral Medium 3.5"].includes(state.settings.modelName);
-}
-
 function apiOptions() {
-  const options = {
-    model: state.settings.model,
-    normalize: true
+  return {
+    model: state.settings.model
   };
-  if (["low", "medium", "high"].includes(state.settings.verbosity)) options.verbosity = state.settings.verbosity;
-  if (supportsReasoning() && ["minimal", "low", "medium", "high", "xhigh"].includes(state.settings.reasoning)) options.reasoning_effort = state.settings.reasoning;
-  return options;
 }
 
 function extractResponseText(response) {
@@ -588,6 +622,7 @@ async function requestCompletion(prompt, file = null) {
   const choice = getSelectedChoice();
   const live = resolveLiveModel(choice);
   if (!live) throw new Error("The selected model is not currently available through Puter.");
+  if (file && !modelAcceptsImages(live)) throw new Error(`${choice.name} does not expose image input through the current Puter model catalog.`);
 
   const options = apiOptions();
   const response = file
@@ -604,9 +639,10 @@ async function sendMessage(textOverride = null) {
   const text = String(raw).trim();
   if (!text && !attachedFile) return;
 
-  const choice = getSelectedChoice();
+  let choice = getSelectedChoice();
   if (!isModelAvailable(choice)) {
     await loadModels(true);
+    choice = getSelectedChoice();
     if (!isModelAvailable(choice)) {
       toast(`${choice?.name || state.settings.modelName} is not currently available through Puter.`, "error");
       return;
