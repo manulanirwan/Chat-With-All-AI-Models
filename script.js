@@ -1,8 +1,32 @@
 const DEFAULT_MODEL = "openai/gpt-6-astra";
-const STORAGE_KEY = "gpt6-astra-state-v2";
+const DEFAULT_MODEL_NAME = "GPT-6 Astra";
+const STORAGE_KEY = "gpt6-astra-state-v3";
+const LEGACY_KEYS = ["gpt6-astra-state-v2", "gpt6-astra-state-v1"];
 const SYSTEM_PROMPT = "You are GPT-6 Astra, a helpful, accurate, practical AI assistant. Use clear structure, explain assumptions, and provide working code when asked. Never claim you performed actions you cannot perform.";
 const MAX_HISTORY_MESSAGES = 20;
-const MAX_FEATURED_MODELS = 20;
+
+const MODEL_CHOICES = [
+  { name: "GPT-6 Astra", company: "OpenAI", candidates: ["openai/gpt-6-astra"] },
+  { name: "GPT-5.6 Cyber", company: "OpenAI", candidates: ["openai/gpt-5.6-cyber"] },
+  { name: "Claude Fable 5.1", company: "Anthropic", candidates: ["anthropic/claude-fable-5-1"] },
+  { name: "Claude Mythos 5.1", company: "Anthropic", candidates: ["anthropic/claude-mythos-5-1"] },
+  { name: "Claude Opus 5", company: "Anthropic", candidates: ["anthropic/claude-opus-5"] },
+  { name: "Gemini 3.8 Flash", company: "Google", candidates: ["google/gemini-3.8-flash"] },
+  { name: "Gemini 3.8 Flash Cyber", company: "Google", candidates: ["google/gemini-3.8-flash-cyber"] },
+  { name: "Grok 4.6", company: "xAI", candidates: ["x-ai/grok-4.6"] },
+  { name: "DeepSeek V4.1 Flash", company: "DeepSeek", candidates: ["deepseek/deepseek-v4.1-flash"] },
+  { name: "DeepSeek V4 Pro", company: "DeepSeek", candidates: ["deepseek/deepseek-v4-pro"] },
+  { name: "Qwen3.8-Max", company: "Alibaba", candidates: ["qwen/qwen3.8-max", "qwen/qwen3.8-max-0902"] },
+  { name: "Qwen3.8 Flash-Next", company: "Alibaba", candidates: ["qwen/qwen3.8-flash-next"] },
+  { name: "Kimi K3", company: "Moonshot AI", candidates: ["moonshotai/kimi-k3"] },
+  { name: "GLM-5.3", company: "Z.ai", candidates: ["z-ai/glm-5.3"] },
+  { name: "GLM-5.3 Flash", company: "Z.ai", candidates: ["z-ai/glm-5.3-flash"] },
+  { name: "Muse Spark 1.3", company: "Meta", candidates: ["meta/muse-spark-1.3"] },
+  { name: "Nemotron 3 Ultra", company: "NVIDIA", candidates: ["nvidia/nemotron-3-ultra"] },
+  { name: "Mistral Medium 3.5", company: "Mistral AI", candidates: ["mistralai/mistral-medium-3-5"] },
+  { name: "Command A+", company: "Cohere", candidates: ["cohere/command-a-plus"] },
+  { name: "Atria Dawn Preview", company: "Atria", candidates: ["atria/atria-dawn-preview"] }
+];
 
 const emptyState = {
   chats: [],
@@ -10,18 +34,20 @@ const emptyState = {
   settings: {
     theme: "dark",
     model: DEFAULT_MODEL,
-    modelName: "GPT-6 Astra",
+    modelName: DEFAULT_MODEL_NAME,
     verbosity: "medium",
     reasoning: "medium"
   }
 };
 
 let state = loadState();
+let availableModels = [];
+let loadingModels = false;
 let attachedFile = null;
 let generating = false;
 let recognition = null;
-let availableModels = [];
-let modelLoadPromise = null;
+let modelFilter = "all";
+let modelQuery = "";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -29,21 +55,30 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const els = {
   history: $("#history-list"),
   historyEmpty: $("#history-empty"),
+  historyCount: $("#history-count"),
   scroll: $("#scroll"),
   welcome: $("#welcome"),
   messages: $("#messages"),
   title: $("#chat-title"),
+  titleMeta: $("#title-meta"),
   input: $("#input"),
   send: $("#send"),
   attachment: $("#attachment"),
   file: $("#file"),
   search: $("#search"),
   modelLabel: $("#model-label"),
+  sideModelName: $("#side-model-name"),
+  sideModelStatus: $("#side-model-status"),
   modalBg: $("#modal-bg"),
   settings: $("#settings"),
   modelModal: $("#model-modal"),
+  modelList: $("#model-list"),
+  modelSearch: $("#model-search"),
+  modelFilters: $("#model-filters"),
+  catalogStatus: $("#catalog-status"),
+  featuredModels: $("#featured-models"),
+  selectedModelCard: $("#selected-model-card"),
   theme: $("#theme"),
-  model: $("#model"),
   verbosity: $("#verbosity"),
   reasoning: $("#reasoning"),
   toasts: $("#toasts")
@@ -55,7 +90,12 @@ function clone(value) {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("gpt6-astra-state-v1");
+    const sources = [STORAGE_KEY, ...LEGACY_KEYS];
+    let raw = null;
+    for (const key of sources) {
+      raw = localStorage.getItem(key);
+      if (raw) break;
+    }
     if (!raw) return clone(emptyState);
 
     const saved = JSON.parse(raw) || {};
@@ -77,16 +117,11 @@ function loadState() {
         }))
       : [];
 
-    const settings = {
-      ...emptyState.settings,
-      ...(saved.settings || {})
-    };
-
     return {
       ...clone(emptyState),
       ...saved,
       activeId: saved.activeId || null,
-      settings,
+      settings: { ...emptyState.settings, ...(saved.settings || {}) },
       chats
     };
   } catch {
@@ -114,13 +149,7 @@ function ensureChat() {
   let chat = activeChat();
   if (!chat) {
     const now = Date.now();
-    chat = {
-      id: uid(),
-      title: "New conversation",
-      createdAt: now,
-      updatedAt: now,
-      messages: []
-    };
+    chat = { id: uid(), title: "New conversation", createdAt: now, updatedAt: now, messages: [] };
     state.chats.unshift(chat);
     state.activeId = chat.id;
     saveState();
@@ -139,7 +168,7 @@ function toast(message, type = "") {
   element.className = `toast ${type}`.trim();
   element.textContent = message;
   els.toasts.appendChild(element);
-  window.setTimeout(() => element.remove(), 3500);
+  window.setTimeout(() => element.remove(), 3600);
 }
 
 function escapeHtml(value) {
@@ -158,10 +187,7 @@ function renderText(value) {
 
 function formatTime(timestamp) {
   try {
-    return new Date(timestamp).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit"
-    });
+    return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "";
   }
@@ -170,13 +196,13 @@ function formatTime(timestamp) {
 function renderHistory() {
   if (!els.history) return;
   const query = String(els.search?.value || "").trim().toLowerCase();
-  els.history.innerHTML = "";
-
   const chats = state.chats
     .filter((chat) => !query || String(chat.title || "").toLowerCase().includes(query))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
+  els.history.innerHTML = "";
   if (els.historyEmpty) els.historyEmpty.hidden = chats.length > 0;
+  if (els.historyCount) els.historyCount.textContent = String(chats.length);
 
   for (const chat of chats) {
     const row = document.createElement("div");
@@ -191,7 +217,7 @@ function renderHistory() {
       if (event.target.closest(".rename")) return;
       state.activeId = chat.id;
       saveState();
-      closeAllModals();
+      document.body.classList.remove("sidebar-open");
       renderApp();
     });
     row.querySelector(".rename").addEventListener("click", (event) => {
@@ -211,7 +237,6 @@ function renderHistory() {
 function renderMessages() {
   const chat = activeChat();
   if (!els.messages) return;
-
   els.messages.innerHTML = "";
   if (els.welcome) els.welcome.hidden = Boolean(chat?.messages?.length);
   if (!chat) return;
@@ -255,7 +280,7 @@ function renderMessages() {
       actions.appendChild(edit);
     }
 
-    if (role === "assistant" && index === chat.messages.length - 1 && chat.messages.length > 1 && content) {
+    if (role === "assistant" && index === chat.messages.length - 1 && content) {
       const regenerate = document.createElement("button");
       regenerate.type = "button";
       regenerate.textContent = "Regenerate";
@@ -273,15 +298,237 @@ function renderMessages() {
 
 function renderApp() {
   const chat = activeChat();
+  const current = getSelectedChoice();
+  const displayName = current?.name || state.settings.modelName || modelDisplayName(state.settings.model);
   if (els.title) els.title.textContent = chat?.title || "New conversation";
-  if (els.modelLabel) {
-    els.modelLabel.textContent = state.settings.modelName || modelDisplayName(state.settings.model) || "Select model";
-  }
+  if (els.modelLabel) els.modelLabel.textContent = displayName;
+  if (els.sideModelName) els.sideModelName.textContent = displayName;
+  if (els.sideModelStatus) els.sideModelStatus.textContent = isModelAvailable(current) ? `${current.company} · Ready` : `${current?.company || "AI"} · Not exposed by Puter`;
+  if (els.titleMeta) els.titleMeta.textContent = `${MODEL_CHOICES.length} curated models · ${availableModels.length ? `${countAvailableChoices()} available now` : "checking live availability"}`;
+  if (els.input) els.input.placeholder = `Message ${displayName}…`;
   renderHistory();
   renderMessages();
   applyTheme();
   syncSettingsControls();
+  renderSelectedModelCard();
+  renderFeaturedModels();
   updateSendState();
+}
+
+function getSelectedChoice() {
+  return MODEL_CHOICES.find((choice) => choice.name === state.settings.modelName || choice.candidates.includes(state.settings.model)) || null;
+}
+
+function modelDisplayName(modelId) {
+  const live = availableModels.find((model) => model.requestId === modelId);
+  return live?.name || String(modelId || "").split("/").pop() || DEFAULT_MODEL_NAME;
+}
+
+function modelRequestId(model) {
+  const id = String(model?.id || "").trim();
+  const provider = String(model?.provider || "").trim();
+  if (!id) return "";
+  if (id.includes("/")) return id;
+  return provider ? `${provider}/${id}` : id;
+}
+
+function modelSearchText(model) {
+  return [model?.id, model?.name, model?.provider, ...(Array.isArray(model?.aliases) ? model.aliases : [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function normalizeText(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function resolveLiveModel(choice) {
+  const candidates = choice?.candidates || [];
+  const exactId = availableModels.find((model) => candidates.some((id) => model.requestId.toLowerCase() === id.toLowerCase() || model.id.toLowerCase() === id.toLowerCase()));
+  if (exactId) return exactId;
+
+  const targetName = normalizeText(choice?.name);
+  if (!targetName) return null;
+  return availableModels.find((model) => {
+    const names = [model.name, model.id, ...(model.aliases || [])];
+    return names.some((name) => normalizeText(name) === targetName);
+  }) || null;
+}
+
+function isModelAvailable(choice) {
+  return Boolean(choice && resolveLiveModel(choice));
+}
+
+function countAvailableChoices() {
+  return MODEL_CHOICES.filter((choice) => isModelAvailable(choice)).length;
+}
+
+function renderFeaturedModels() {
+  if (!els.featuredModels) return;
+  const picks = [0, 2, 5, 7, 8, 10].map((index) => MODEL_CHOICES[index]).filter(Boolean);
+  els.featuredModels.innerHTML = picks.map((choice) => {
+    const live = resolveLiveModel(choice);
+    const selected = state.settings.modelName === choice.name;
+    return `
+      <button class="featured-model ${selected ? "selected" : ""} ${live ? "ready" : "unavailable"}" type="button" data-featured-model="${escapeHtml(choice.name)}" ${live ? "" : "disabled"}>
+        <span class="provider-logo">${providerInitial(choice.company)}</span>
+        <span><b>${escapeHtml(choice.name)}</b><small>${escapeHtml(choice.company)}</small></span>
+        <span class="model-state">${live ? "●" : "—"}</span>
+      </button>
+    `;
+  }).join("");
+
+  $$("[data-featured-model]").forEach((button) => {
+    button.addEventListener("click", () => selectModelByName(button.getAttribute("data-featured-model")));
+  });
+}
+
+function providerInitial(company) {
+  return String(company || "AI").replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "AI";
+}
+
+function renderModelModal() {
+  if (!els.modelList) return;
+  let list = MODEL_CHOICES.filter((choice) => {
+    const live = resolveLiveModel(choice);
+    if (modelFilter === "available" && !live) return false;
+    if (!["all", "available"].includes(modelFilter) && modelFilter !== "Other" && choice.company !== modelFilter) return false;
+    if (modelFilter === "Other" && ["OpenAI", "Anthropic", "Google"].includes(choice.company)) return false;
+    if (modelQuery) {
+      const haystack = `${choice.name} ${choice.company} ${choice.candidates.join(" ")}`.toLowerCase();
+      if (!haystack.includes(modelQuery)) return false;
+    }
+    return true;
+  });
+
+  els.modelList.innerHTML = list.length ? list.map((choice, index) => {
+    const live = resolveLiveModel(choice);
+    const selected = state.settings.modelName === choice.name || state.settings.model === live?.requestId;
+    return `
+      <button class="model-option ${selected ? "active" : ""} ${live ? "" : "disabled"}" type="button" data-model-index="${index}" ${live ? "" : "disabled"}>
+        <span class="provider-logo ${providerClass(choice.company)}">${providerInitial(choice.company)}</span>
+        <span class="model-info"><b>${escapeHtml(choice.name)}</b><small>${escapeHtml(choice.company)} · ${escapeHtml(live?.requestId || choice.candidates[0])}</small></span>
+        <span class="model-availability ${live ? "ready" : "off"}">${live ? "Ready" : "Unavailable"}</span>
+        <span class="check">${selected ? "✓" : ""}</span>
+      </button>
+    `;
+  }).join("") : `<div class="empty-models"><strong>No matching models</strong><span>Try a different search or refresh the live catalog.</span></div>`;
+
+  els.modelList.querySelectorAll("[data-model-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const filtered = getFilteredModelChoices();
+      const choice = filtered[Number(button.getAttribute("data-model-index"))];
+      if (choice) selectModelByChoice(choice);
+    });
+  });
+}
+
+function getFilteredModelChoices() {
+  return MODEL_CHOICES.filter((choice) => {
+    const live = resolveLiveModel(choice);
+    if (modelFilter === "available" && !live) return false;
+    if (!["all", "available"].includes(modelFilter) && modelFilter !== "Other" && choice.company !== modelFilter) return false;
+    if (modelFilter === "Other" && ["OpenAI", "Anthropic", "Google"].includes(choice.company)) return false;
+    if (modelQuery) {
+      const haystack = `${choice.name} ${choice.company} ${choice.candidates.join(" ")}`.toLowerCase();
+      if (!haystack.includes(modelQuery)) return false;
+    }
+    return true;
+  });
+}
+
+function selectModelByName(name) {
+  const choice = MODEL_CHOICES.find((item) => item.name === name);
+  if (choice) selectModelByChoice(choice);
+}
+
+function selectModelByChoice(choice) {
+  const live = resolveLiveModel(choice);
+  if (!live) {
+    toast(`${choice.name} is not currently exposed by Puter.`, "error");
+    return;
+  }
+
+  state.settings.model = live.requestId;
+  state.settings.modelName = choice.name;
+  saveState();
+  closeAllModals();
+  renderApp();
+  toast(`${choice.name} selected`);
+}
+
+function renderSelectedModelCard() {
+  if (!els.selectedModelCard) return;
+  const choice = getSelectedChoice();
+  const live = resolveLiveModel(choice);
+  els.selectedModelCard.innerHTML = `
+    <span class="provider-logo">${providerInitial(choice?.company || "AI")}</span>
+    <div><small>SELECTED MODEL</small><b>${escapeHtml(choice?.name || state.settings.modelName || DEFAULT_MODEL_NAME)}</b><span>${escapeHtml(choice?.company || "AI")} · ${escapeHtml(live?.requestId || state.settings.model)}</span></div>
+    <button type="button" id="settings-model-switch">Change</button>
+  `;
+  $("#settings-model-switch")?.addEventListener("click", () => {
+    closeAllModals();
+    openModelPicker();
+  });
+}
+
+function updateCatalogStatus() {
+  const available = countAvailableChoices();
+  if (els.catalogStatus) els.catalogStatus.textContent = loadingModels ? "Refreshing Puter model catalog…" : `${available}/${MODEL_CHOICES.length} selected models currently exposed by Puter`;
+  if (els.sideModelStatus) {
+    const choice = getSelectedChoice();
+    els.sideModelStatus.textContent = isModelAvailable(choice) ? `${choice.company} · Ready` : `${choice?.company || "AI"} · Not exposed by Puter`;
+  }
+}
+
+async function loadModels(force = false) {
+  if (loadingModels && !force) return;
+  if (!force && availableModels.length) return;
+  if (!window.puter?.ai || typeof window.puter.ai.listModels !== "function") {
+    availableModels = [];
+    updateCatalogStatus();
+    renderApp();
+    return;
+  }
+
+  loadingModels = true;
+  updateCatalogStatus();
+  try {
+    const rawModels = await window.puter.ai.listModels();
+    const models = Array.isArray(rawModels) ? rawModels : [];
+    const unique = new Map();
+    for (const model of models) {
+      const normalized = {
+        raw: model,
+        id: String(model?.id || "").trim(),
+        requestId: modelRequestId(model),
+        name: String(model?.name || model?.id || "AI model").trim(),
+        provider: String(model?.provider || "").trim(),
+        aliases: Array.isArray(model?.aliases) ? model.aliases : [],
+        context: Number(model?.context) || 0
+      };
+      if (normalized.requestId) unique.set(normalized.requestId.toLowerCase(), normalized);
+    }
+    availableModels = [...unique.values()];
+
+    const selected = getSelectedChoice();
+    const liveSelected = resolveLiveModel(selected);
+    if (liveSelected) {
+      state.settings.model = liveSelected.requestId;
+      state.settings.modelName = selected.name;
+      saveState();
+    }
+  } catch (error) {
+    console.warn("Could not load Puter model catalog:", error);
+    availableModels = [];
+    toast("Could not refresh the live model catalog.", "error");
+  } finally {
+    loadingModels = false;
+    updateCatalogStatus();
+    renderApp();
+    if (els.modelModal && !els.modelModal.hidden) renderModelModal();
+  }
 }
 
 function buildPrompt(chat) {
@@ -294,93 +541,73 @@ function buildPrompt(chat) {
     .slice(-MAX_HISTORY_MESSAGES)
     .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content.trim()}`)
     .join("\n\n");
-
   return `${SYSTEM_PROMPT}\n\n${history}`.trim();
+}
+
+function supportsReasoning() {
+  return ["GPT-6 Astra", "Claude Fable 5.1", "Claude Mythos 5.1", "Claude Opus 5", "Grok 4.6", "DeepSeek V4.1 Flash", "DeepSeek V4 Pro", "Qwen3.8-Max", "Kimi K3", "GLM-5.3", "GLM-5.3 Flash", "Nemotron 3 Ultra", "Mistral Medium 3.5"].includes(state.settings.modelName);
 }
 
 function apiOptions() {
   const options = {
-    model: state.settings.model || DEFAULT_MODEL,
+    model: state.settings.model,
     normalize: true
   };
-
-  if (["low", "medium", "high"].includes(state.settings.verbosity)) {
-    options.verbosity = state.settings.verbosity;
-  }
-
-  if (["none", "minimal", "low", "medium", "high", "xhigh"].includes(state.settings.reasoning)) {
-    options.reasoning_effort = state.settings.reasoning;
-  }
-
+  if (["low", "medium", "high"].includes(state.settings.verbosity)) options.verbosity = state.settings.verbosity;
+  if (supportsReasoning() && ["minimal", "low", "medium", "high", "xhigh"].includes(state.settings.reasoning)) options.reasoning_effort = state.settings.reasoning;
   return options;
 }
 
 function extractResponseText(response) {
   const content = response?.message?.content ?? response?.text;
   if (typeof content === "string") return content.trim();
-
   if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (typeof part?.text === "string") return part.text;
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n")
-      .trim();
+    return content.map((part) => {
+      if (typeof part === "string") return part;
+      if (typeof part?.text === "string") return part.text;
+      return "";
+    }).filter(Boolean).join("\n").trim();
   }
-
   return typeof response === "string" ? response.trim() : "";
 }
 
 function friendlyAiError(error) {
   const raw = String(error?.message || error || "Unknown error");
   const lower = raw.toLowerCase();
-
-  if (lower.includes("credit") || lower.includes("quota") || lower.includes("limit")) {
-    return "Puter AI credits or usage limit reached. Try again after the limit resets, or switch to another available model.";
-  }
-
-  if (lower.includes("model") && (lower.includes("not found") || lower.includes("unsupported") || lower.includes("invalid"))) {
-    return "That model is not currently available through Puter. Open the model picker and choose an available model.";
-  }
-
-  if (lower.includes("content") && lower.includes("property")) {
-    return "The selected model request format was rejected. Please switch to another available model and try again.";
-  }
-
+  if (lower.includes("credit") || lower.includes("quota") || lower.includes("usage") || lower.includes("limit")) return "Puter AI usage limit reached. Try again after the limit resets.";
+  if (lower.includes("model") && (lower.includes("not found") || lower.includes("unsupported") || lower.includes("invalid"))) return "That model is no longer available through Puter. Open Model Switcher and choose a Ready model.";
+  if (lower.includes("content") && lower.includes("property")) return "The selected model rejected this request format. Choose another Ready model and try again.";
   return raw;
 }
 
 async function requestCompletion(prompt, file = null) {
-  const puterApi = window.puter?.ai;
-  if (!puterApi || typeof puterApi.chat !== "function") {
-    throw new Error("Puter.js is not ready. Please refresh the page and try again.");
-  }
+  if (!window.puter?.ai || typeof window.puter.ai.chat !== "function") throw new Error("Puter.js is not ready. Refresh the page and try again.");
+  const choice = getSelectedChoice();
+  const live = resolveLiveModel(choice);
+  if (!live) throw new Error("The selected model is not currently available through Puter.");
 
   const options = apiOptions();
   const response = file
-    ? await puterApi.chat(prompt, file, false, options)
-    : await puterApi.chat(prompt, options);
-
+    ? await window.puter.ai.chat(prompt, file, false, options)
+    : await window.puter.ai.chat(prompt, options);
   const text = extractResponseText(response);
-  if (!text) {
-    throw new Error("The model returned an empty response.");
-  }
+  if (!text) throw new Error("The model returned an empty response.");
   return text;
 }
 
 async function sendMessage(textOverride = null) {
   if (generating) return;
-
   const raw = textOverride ?? els.input?.value ?? "";
   const text = String(raw).trim();
   if (!text && !attachedFile) return;
 
-  if (!window.puter?.ai || typeof window.puter.ai.chat !== "function") {
-    toast("Puter.js is not ready. Please refresh the page and try again.", "error");
-    return;
+  const choice = getSelectedChoice();
+  if (!isModelAvailable(choice)) {
+    await loadModels(true);
+    if (!isModelAvailable(choice)) {
+      toast(`${choice?.name || state.settings.modelName} is not currently available through Puter.`, "error");
+      return;
+    }
   }
 
   const chat = ensureChat();
@@ -395,7 +622,6 @@ async function sendMessage(textOverride = null) {
   if (els.input) els.input.value = "";
   autoSize();
   clearAttachment();
-
   const assistant = { role: "assistant", content: "", createdAt: Date.now() };
   chat.messages.push(assistant);
   generating = true;
@@ -403,8 +629,7 @@ async function sendMessage(textOverride = null) {
   renderApp();
 
   try {
-    const prompt = buildPrompt(chat);
-    assistant.content = await requestCompletion(prompt, file);
+    assistant.content = await requestCompletion(buildPrompt(chat), file);
     chat.updatedAt = Date.now();
     saveState();
     renderMessages();
@@ -423,25 +648,24 @@ async function regenerateLast() {
   if (generating) return;
   const chat = activeChat();
   if (!chat || chat.messages.length < 2) return;
-
-  const last = chat.messages[chat.messages.length - 1];
-  if (last?.role !== "assistant") return;
-
+  if (chat.messages.at(-1)?.role !== "assistant") return;
   chat.messages.pop();
   saveState();
-  renderMessages();
   await runWithExistingChat(chat);
 }
 
 async function runWithExistingChat(chat) {
   if (generating || !chat) return;
-
+  const choice = getSelectedChoice();
+  if (!isModelAvailable(choice)) {
+    toast(`${choice?.name || state.settings.modelName} is not currently available through Puter.`, "error");
+    return;
+  }
   const assistant = { role: "assistant", content: "", createdAt: Date.now() };
   chat.messages.push(assistant);
   generating = true;
   updateSendState();
   renderMessages();
-
   try {
     assistant.content = await requestCompletion(buildPrompt(chat));
     chat.updatedAt = Date.now();
@@ -462,14 +686,11 @@ function editMessage(index) {
   const chat = activeChat();
   const message = chat?.messages?.[index];
   if (!chat || message?.role !== "user") return;
-
-  const original = message.content || "";
   chat.messages = chat.messages.slice(0, index);
   saveState();
   renderMessages();
-
   if (els.input) {
-    els.input.value = original;
+    els.input.value = message.content || "";
     autoSize();
     els.input.focus();
   }
@@ -480,7 +701,6 @@ function updateSendState() {
   els.send.disabled = generating;
   els.send.classList.toggle("stop", generating);
   els.send.innerHTML = generating ? "■" : "↑";
-  els.send.title = generating ? "Generating" : "Send";
   els.send.setAttribute("aria-busy", generating ? "true" : "false");
 }
 
@@ -505,7 +725,6 @@ function setAttachment(file) {
     toast("Please attach an image file.", "error");
     return;
   }
-
   attachedFile = file;
   if (els.attachment) {
     els.attachment.hidden = false;
@@ -522,7 +741,6 @@ function applyTheme() {
 
 function syncSettingsControls() {
   if (els.theme) els.theme.value = state.settings.theme;
-  if (els.model) els.model.value = state.settings.model;
   if (els.verbosity) els.verbosity.value = state.settings.verbosity;
   if (els.reasoning) els.reasoning.value = state.settings.reasoning;
 }
@@ -542,170 +760,18 @@ function closeAllModals() {
   document.body.classList.remove("modal-open");
 }
 
-function renderModelModal(models) {
-  if (!els.modelModal) return;
-  const current = state.settings.model;
-  const content = models.length
-    ? models.map((model) => {
-        const selected = model.requestId === current;
-        return `
-          <button class="model-option ${selected ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.requestId)}">
-            <i></i>
-            <span><b>${escapeHtml(model.name)}</b><small>${escapeHtml(model.providerLabel)} · ${escapeHtml(model.id)}</small></span>
-            <span aria-hidden="true">${selected ? "✓" : ""}</span>
-          </button>
-        `;
-      }).join("")
-    : `<div class="model-help">Could not load the current Puter model catalog. The default GPT-6 Astra model can still be used.</div>`;
-
-  els.modelModal.innerHTML = `
-    <div class="modal-head"><div><small>MODEL</small><h2>Choose model</h2></div><button class="icon close-model-modal" type="button" aria-label="Close">×</button></div>
-    <div class="model-list" style="max-height:58vh;overflow:auto;display:grid;gap:8px">${content}</div>
-    <p class="model-help">Showing up to 20 current, high-profile models exposed by Puter. Availability can change with provider limits.</p>
-  `;
-
-  els.modelModal.querySelector(".close-model-modal")?.addEventListener("click", closeAllModals);
-  els.modelModal.querySelectorAll("[data-model-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const id = button.getAttribute("data-model-id");
-      const selected = models.find((model) => model.requestId === id);
-      if (!id || !selected) return;
-      state.settings.model = selected.requestId;
-      state.settings.modelName = selected.name;
-      saveState();
-      closeAllModals();
-      renderApp();
-      toast(`${selected.name} selected`);
-    });
-  });
-}
-
-function modelDisplayName(modelId) {
-  const match = availableModels.find((model) => model.requestId === modelId);
-  return match?.name || String(modelId || "").split("/").pop() || "Select model";
-}
-
-function modelRequestId(model) {
-  const id = String(model?.id || "").trim();
-  const provider = String(model?.provider || "").trim();
-  if (!id) return "";
-  if (id.includes("/")) return id;
-  if (provider && provider !== "openrouter") return `${provider}/${id}`;
-  return id;
-}
-
-function modelSearchText(model) {
-  return [model?.id, model?.name, ...(Array.isArray(model?.aliases) ? model.aliases : []), model?.provider]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-const FEATURE_PATTERNS = [
-  /gpt[- ]?6[^a-z0-9]?astra/i,
-  /gpt[- ]?5\.6[^a-z0-9]?(sol|terra|luna)/i,
-  /claude[^\n]*(fable|mythos|opus ?5|sonnet ?5)/i,
-  /gemini[^\n]*3\.8[^\n]*(flash|cyber)/i,
-  /grok[^\n]*4\.6/i,
-  /deepseek[^\n]*v4\.1/i,
-  /qwen[^\n]*3\.8/i,
-  /kimi[^\n]*k3/i,
-  /glm[^\n]*5\.3/i,
-  /mistral[^\n]*(medium ?3\.5)/i,
-  /command[^\n]*a\+/i,
-  /muse[^\n]*spark/i,
-  /nemotron[^\n]*3/i
-];
-
-function scoreModel(model) {
-  const text = modelSearchText(model);
-  const provider = String(model?.provider || "").toLowerCase();
-  let score = 0;
-
-  FEATURE_PATTERNS.forEach((pattern, index) => {
-    if (pattern.test(text)) score += 1000 - index * 30;
-  });
-
-  const providerRank = {
-    openai: 90,
-    anthropic: 88,
-    google: 86,
-    xai: 84,
-    deepseek: 82,
-    alibaba: 80,
-    moonshot: 78,
-    zai: 76,
-    mistral: 74,
-    meta: 72,
-    nvidia: 70,
-    cohere: 68
-  };
-
-  score += providerRank[provider] || 20;
-  if (model?.context) score += Math.min(Number(model.context) / 100000, 20);
-  return score;
-}
-
-async function loadModels() {
-  if (modelLoadPromise) return modelLoadPromise;
-  modelLoadPromise = (async () => {
-    try {
-      if (!window.puter?.ai || typeof window.puter.ai.listModels !== "function") {
-        availableModels = [];
-        return [];
-      }
-
-      const rawModels = await window.puter.ai.listModels();
-      const candidates = Array.isArray(rawModels) ? rawModels : [];
-      const normalized = candidates
-        .map((model) => ({
-          raw: model,
-          id: String(model?.id || "").trim(),
-          requestId: modelRequestId(model),
-          providerLabel: String(model?.provider || "Puter").trim() || "Puter",
-          name: String(model?.name || model?.id || "AI model").trim(),
-          aliases: Array.isArray(model?.aliases) ? model.aliases : [],
-          context: Number(model?.context) || 0
-        }))
-        .filter((model) => model.id && model.requestId);
-
-      const unique = new Map();
-      for (const model of normalized) {
-        const key = model.requestId.toLowerCase();
-        if (!unique.has(key)) unique.set(key, model);
-      }
-
-      const sorted = [...unique.values()].sort((a, b) => scoreModel(b.raw) - scoreModel(a.raw));
-      const featured = sorted.filter((model) => FEATURE_PATTERNS.some((pattern) => pattern.test(modelSearchText(model.raw))));
-      const remainder = sorted.filter((model) => !featured.includes(model));
-      availableModels = [...featured, ...remainder].slice(0, MAX_FEATURED_MODELS);
-
-      const defaultMatch = availableModels.find((model) =>
-        model.requestId === DEFAULT_MODEL || model.id === "gpt-6-astra" || /gpt[- ]?6[^a-z0-9]?astra/i.test(model.name)
-      );
-      if (!state.settings.model && defaultMatch) {
-        state.settings.model = defaultMatch.requestId;
-        state.settings.modelName = defaultMatch.name;
-      }
-
-      return availableModels;
-    } catch (error) {
-      console.warn("Could not load Puter model catalog:", error);
-      availableModels = [];
-      return [];
-    }
-  })();
-
-  return modelLoadPromise;
+function resetModelFilters() {
+  modelFilter = "all";
+  modelQuery = "";
+  if (els.modelSearch) els.modelSearch.value = "";
+  $$("#model-filters button").forEach((button) => button.classList.toggle("active", button.dataset.filter === "all"));
 }
 
 async function openModelPicker() {
   openModal(els.modelModal);
-  renderModelModal(availableModels);
-  if (!availableModels.length) {
-    await loadModels();
-    renderModelModal(availableModels);
-  }
+  renderModelModal();
+  if (!availableModels.length) await loadModels();
+  renderModelModal();
 }
 
 function newChat() {
@@ -742,7 +808,7 @@ function clearData() {
   const confirmed = window.confirm("Clear all locally saved chats and settings?");
   if (!confirmed) return;
   localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem("gpt6-astra-state-v1");
+  LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
   state = clone(emptyState);
   attachedFile = null;
   ensureChat();
@@ -757,19 +823,16 @@ function startVoiceInput() {
     toast("Voice input is not supported in this browser.", "error");
     return;
   }
-
   if (recognition) {
     recognition.stop();
     recognition = null;
     toast("Voice input stopped");
     return;
   }
-
   recognition = new SpeechRecognition();
   recognition.lang = navigator.language || "en-US";
   recognition.interimResults = true;
   recognition.continuous = false;
-
   let finalText = "";
   recognition.onresult = (event) => {
     let interim = "";
@@ -799,7 +862,6 @@ function bindEvents() {
       sendMessage();
     }
   });
-
   els.file?.addEventListener("change", (event) => setAttachment(event.target.files?.[0] || null));
   els.search?.addEventListener("input", renderHistory);
   $("#new-chat")?.addEventListener("click", newChat);
@@ -808,15 +870,26 @@ function bindEvents() {
   $("#export-data")?.addEventListener("click", exportChats);
   $("#clear-data")?.addEventListener("click", clearData);
   $("#model-picker")?.addEventListener("click", openModelPicker);
+  $("#side-model-picker")?.addEventListener("click", openModelPicker);
   $("#top-settings")?.addEventListener("click", () => openModal(els.settings));
   $("#open-settings")?.addEventListener("click", () => openModal(els.settings));
+  $("#refresh-models")?.addEventListener("click", () => loadModels(true));
+  $("#refresh-models-modal")?.addEventListener("click", () => loadModels(true));
   els.modalBg?.addEventListener("click", closeAllModals);
-
   $$(".close-modal").forEach((button) => button.addEventListener("click", closeAllModals));
+  els.modelSearch?.addEventListener("input", (event) => {
+    modelQuery = String(event.target.value || "").trim().toLowerCase();
+    renderModelModal();
+  });
+  els.modelFilters?.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      modelFilter = button.dataset.filter || "all";
+      els.modelFilters.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
+      renderModelModal();
+    });
+  });
   $("#save-settings")?.addEventListener("click", () => {
     state.settings.theme = els.theme?.value || "dark";
-    state.settings.model = els.model?.value?.trim() || DEFAULT_MODEL;
-    state.settings.modelName = modelDisplayName(state.settings.model);
     state.settings.verbosity = els.verbosity?.value || "medium";
     state.settings.reasoning = els.reasoning?.value || "medium";
     saveState();
@@ -824,7 +897,6 @@ function bindEvents() {
     renderApp();
     toast("Settings saved");
   });
-
   $$("[data-prompt]").forEach((button) => {
     button.addEventListener("click", () => {
       const prompt = button.getAttribute("data-prompt") || "";
@@ -833,11 +905,9 @@ function bindEvents() {
       els.input?.focus();
     });
   });
-
   $("#open-sidebar")?.addEventListener("click", () => document.body.classList.add("sidebar-open"));
   $("#close-sidebar")?.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
   $("#backdrop")?.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
-
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeAllModals();
@@ -852,25 +922,18 @@ function bindEvents() {
       els.search?.focus();
     }
   });
-
   window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
 }
 
 async function init() {
+  resetModelFilters();
   bindEvents();
   ensureChat();
   renderApp();
   autoSize();
-
   await loadModels();
-  if (availableModels.length) {
-    const exact = availableModels.find((model) => model.requestId === state.settings.model);
-    if (exact) {
-      state.settings.modelName = exact.name;
-      saveState();
-      renderApp();
-    }
-  }
+  updateCatalogStatus();
+  renderApp();
 }
 
 if (document.readyState === "loading") {
