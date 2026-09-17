@@ -66,13 +66,56 @@
     const hasMessages=Boolean(messages&&messages.children.length);
     if(!hasMessages)scroll.scrollTop=0;
   }
+  function applyShellLayout(){
+    const mobile=window.innerWidth<860;
+    const shell=document.querySelector(".app-shell");
+    const side=document.querySelector(".sidebar");
+    const main=document.querySelector(".main");
+    if(shell){
+      shell.style.display=mobile?"block":"flex";
+      shell.style.flexDirection="row";
+      shell.style.width="100%";
+      shell.style.maxWidth="none";
+      shell.style.height="100dvh";
+    }
+    if(side){
+      if(mobile){
+        side.style.position="fixed";
+        side.style.left="0";
+        side.style.top="0";
+        side.style.bottom="0";
+        side.style.zIndex="40";
+        if(!document.body.classList.contains("sidebar-open"))side.style.transform="translateX(-105%)";
+        else side.style.transform="translateX(0)";
+      }else{
+        side.style.position="relative";
+        side.style.left="auto";
+        side.style.top="auto";
+        side.style.bottom="auto";
+        side.style.transform="none";
+        side.style.flex="0 0 300px";
+        side.style.width="300px";
+        side.style.maxWidth="300px";
+      }
+    }
+    if(main){
+      main.style.flex="1 1 auto";
+      main.style.width=mobile?"100%":"auto";
+      main.style.minWidth="0";
+      main.style.maxWidth="none";
+      main.style.height="100dvh";
+    }
+  }
   function start(){
     bind();
+    applyShellLayout();
     keepWelcomeInView();
     const messages=document.querySelector("#messages");
     if(messages)new MutationObserver(keepWelcomeInView).observe(messages,{childList:true});
+    window.addEventListener("resize",applyShellLayout);
     window.setTimeout(keepWelcomeInView,80);
     window.setTimeout(keepWelcomeInView,400);
+    window.setTimeout(applyShellLayout,80);
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start,{once:true});else start();
 })();
